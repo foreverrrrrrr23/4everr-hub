@@ -166,7 +166,7 @@ end)
 
 DelayBtn.MouseButton1Click:Connect(function()
     _G.StartDelay = _G.StartDelay + 1
-    if _G.StartDelay > 5 then
+    if _G.StartDelay > 15 then
         _G.StartDelay = 1
     end
     DelayBtn.Text = "⏳ Start Delay: " .. _G.StartDelay .. "s"

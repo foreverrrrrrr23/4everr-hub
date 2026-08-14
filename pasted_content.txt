@@ -1,1856 +1,490 @@
 -- ==========================================
--- 🌀 Auto Portal Hub V.30 — Debuff Validation
+-- 🌟 Auto Portal Hub V.29 (Alt Auto Place Edition)
 -- ==========================================
-
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
-
+local rs = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
-local rs = ReplicatedStorage
 
--- ==========================================
--- REMOTES
--- ==========================================
-
-local activateRemote =
-    rs:WaitForChild("Remotes")
-    :WaitForChild("Inventory")
-    :WaitForChild("ActivateCoopPortal")
-
--- ==========================================
--- ANTI AFK
--- ==========================================
-
-player.Idled:Connect(function()
-    VirtualUser:Button2Down(
-        Vector2.new(0, 0),
-        workspace.CurrentCamera.CFrame
-    )
-
-    task.wait(1)
-
-    VirtualUser:Button2Up(
-        Vector2.new(0, 0),
-        workspace.CurrentCamera.CFrame
-    )
-end)
-
--- ==========================================
--- REMOVE OLD GUI
--- ==========================================
+local activateRemote = rs:WaitForChild("Remotes"):WaitForChild("Inventory"):WaitForChild("ActivateCoopPortal")
 
 if CoreGui:FindFirstChild("AutoPortalHub") then
     CoreGui.AutoPortalHub:Destroy()
 end
 
--- ==========================================
--- ⚙️ CONFIG
--- ==========================================
+local maxAllowedWindDebuff = 60 
 
-_G.DebuffLimits = {
-    DARK = 80,
-    FIRE = 80,
-    NATURE = 80,
-    ROSE = 80,
-    LIGHT = 80,
-    STORM = 80,
-    WIND = 80,
-    WATER = 80
-}
-
-_G.KnownNegatives = {
-    "DARK",
-    "FIRE",
-    "NATURE",
-    "ROSE",
-    "LIGHT",
-    "STORM",
-    "WIND",
-    "WATER"
-}
-
-local DEFAULT_LIMIT = 80
+local folderName = "AutoPortal_Presets"
+if isfolder and makefolder and not isfolder(folderName) then
+    makefolder(folderName)
+end
 
 _G.PlaceMode = "EquipBest"
 _G.IsRecording = false
 _G.CurrentTeam = "Team1"
-_G.TeamsData = {
-    Team1 = {},
-    Team2 = {},
-    Team3 = {}
-}
+_G.TeamsData = { Team1 = {}, Team2 = {}, Team3 = {} }
+_G.StartDelay = 3 
 
-_G.StartDelay = 3
+local function loadPresetsFromFile()
+    if readfile and isfile and isfile(folderName .. "/presets.json") then
+        pcall(function()
+            local json = readfile(folderName .. "/presets.json")
+            _G.TeamsData = HttpService:JSONDecode(json)
+        end)
+    end
+end
+loadPresetsFromFile()
+
+local function savePresetsToFile()
+    if writefile then
+        pcall(function()
+            local json = HttpService:JSONEncode(_G.TeamsData)
+            writefile(folderName .. "/presets.json", json)
+        end)
+    end
+end
+
+local rawNamecall
+rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    if _G.IsRecording and (method == "FireServer" or method == "InvokeServer") and self.Name == "PlaceTower" then
+        table.insert(_G.TeamsData[_G.CurrentTeam], args)
+    end
+    return rawNamecall(self, ...)
+end))
+
+local allPortals = {"S-Rank Portal", "A-Rank Portal", "B-Rank Portal", "C-Rank Portal", "D-Rank Portal", "E-Rank Portal"}
+local selectedRankIndex = 2
 
 _G.AutoPortal = false
 _G.AutoPlace = false
 _G.AutoJoin = false
 
-local folderName = "AutoPortal_Presets"
-
-if isfolder and makefolder and not isfolder(folderName) then
-    makefolder(folderName)
-end
-
 -- ==========================================
--- LOAD / SAVE PRESETS
+-- 🎨 สร้างหน้าต่าง GUI
 -- ==========================================
-
-local function loadPresetsFromFile()
-    if not readfile or not isfile then
-        return
-    end
-
-    local path = folderName .. "/presets.json"
-
-    if not isfile(path) then
-        return
-    end
-
-    pcall(function()
-        local decoded = HttpService:JSONDecode(readfile(path))
-
-        if type(decoded) == "table" then
-            _G.TeamsData = decoded
-
-            _G.TeamsData.Team1 = _G.TeamsData.Team1 or {}
-            _G.TeamsData.Team2 = _G.TeamsData.Team2 or {}
-            _G.TeamsData.Team3 = _G.TeamsData.Team3 or {}
-        end
-    end)
-end
-
-local function savePresetsToFile()
-    if not writefile then
-        return
-    end
-
-    pcall(function()
-        writefile(
-            folderName .. "/presets.json",
-            HttpService:JSONEncode(_G.TeamsData)
-        )
-    end)
-end
-
-loadPresetsFromFile()
-
--- ==========================================
--- 🎙️ RECORD PLACE TOWER
--- ==========================================
-
-local rawNamecall
-
-rawNamecall = hookmetamethod(
-    game,
-    "__namecall",
-    newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        local args = {...}
-
-        if _G.IsRecording
-            and (method == "FireServer" or method == "InvokeServer")
-            and self.Name == "PlaceTower"
-        then
-            if _G.TeamsData[_G.CurrentTeam] then
-                table.insert(
-                    _G.TeamsData[_G.CurrentTeam],
-                    args
-                )
-            end
-        end
-
-        return rawNamecall(self, ...)
-    end)
-)
-
--- ==========================================
--- 🏆 PORTAL RANKS
--- ==========================================
-
-local allPortals = {
-    "S-Rank Portal",
-    "A-Rank Portal",
-    "B-Rank Portal",
-    "C-Rank Portal",
-    "D-Rank Portal",
-    "E-Rank Portal"
-}
-
-local selectedRankIndex = 2
-
--- ==========================================
--- GUI
--- ==========================================
-
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoPortalHub"
 ScreenGui.Parent = CoreGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-local fullSize = UDim2.new(0, 270, 0, 420)
-local minSize = UDim2.new(0, 270, 0, 40)
-
+local fullSize = UDim2.new(0, 250, 0, 375)
+local minSize = UDim2.new(0, 250, 0, 40)
 local isMinimized = false
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Parent = ScreenGui
-MainFrame.Size = fullSize
-MainFrame.Position = UDim2.new(0.5, -135, 0.2, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.ClipsDescendants = true
-
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
-
--- ==========================================
--- TOP BAR
--- ==========================================
+MainFrame.Parent = ScreenGui; MainFrame.Size = fullSize; MainFrame.Position = UDim2.new(0.5, -125, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30); MainFrame.BorderSizePixel = 0; MainFrame.Active = true; MainFrame.Draggable = true; MainFrame.ClipsDescendants = true
+local MainCorner = Instance.new("UICorner"); MainCorner.CornerRadius = UDim.new(0, 8); MainCorner.Parent = MainFrame
 
 local TopBar = Instance.new("Frame")
-TopBar.Parent = MainFrame
-TopBar.Size = UDim2.new(1, 0, 0, 40)
-TopBar.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-TopBar.BorderSizePixel = 0
-
-Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
+TopBar.Parent = MainFrame; TopBar.Size = UDim2.new(1, 0, 0, 40); TopBar.BackgroundColor3 = Color3.fromRGB(15, 15, 20); TopBar.BorderSizePixel = 0
+local TopCorner = Instance.new("UICorner"); TopCorner.CornerRadius = UDim.new(0, 8); TopCorner.Parent = TopBar
 
 local Title = Instance.new("TextLabel")
-Title.Parent = TopBar
-Title.Size = UDim2.new(1, -80, 1, 0)
-Title.Position = UDim2.new(0, 15, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "🌀 Auto Portal V.30"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 12
-Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-
-local DebuffBtn = Instance.new("TextButton")
-DebuffBtn.Parent = TopBar
-DebuffBtn.Size = UDim2.new(0, 30, 0, 24)
-DebuffBtn.Position = UDim2.new(1, -72, 0, 8)
-DebuffBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 90)
-DebuffBtn.Text = "⚙"
-DebuffBtn.TextColor3 = Color3.fromRGB(200, 150, 255)
-DebuffBtn.Font = Enum.Font.GothamBold
-DebuffBtn.TextSize = 14
-
-Instance.new("UICorner", DebuffBtn).CornerRadius = UDim.new(0, 4)
+Title.Parent = TopBar; Title.Size = UDim2.new(1, -50, 1, 0); Title.Position = UDim2.new(0, 15, 0, 0); Title.BackgroundTransparency = 1; Title.Text = "🌀 Auto Portal V.29 (Alt Place)"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255); Title.TextSize = 12; Title.Font = Enum.Font.GothamBold; Title.TextXAlignment = Enum.TextXAlignment.Left
 
 local MinBtn = Instance.new("TextButton")
-MinBtn.Parent = TopBar
-MinBtn.Size = UDim2.new(0, 30, 0, 24)
-MinBtn.Position = UDim2.new(1, -38, 0, 8)
-MinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-MinBtn.Text = "–"
-MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinBtn.Font = Enum.Font.GothamBold
-MinBtn.TextSize = 14
-
-Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
-
--- ==========================================
--- MAIN CONTENT
--- ==========================================
+MinBtn.Parent = TopBar; MinBtn.Size = UDim2.new(0, 30, 0, 24); MinBtn.Position = UDim2.new(1, -40, 0, 8)
+MinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45); MinBtn.Text = "–"; MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255); MinBtn.Font = Enum.Font.GothamBold
+local MinCorner = Instance.new("UICorner"); MinCorner.CornerRadius = UDim.new(0, 4); MinCorner.Parent = MinBtn
 
 local Content = Instance.new("Frame")
-Content.Parent = MainFrame
-Content.Size = UDim2.new(1, 0, 1, -40)
-Content.Position = UDim2.new(0, 0, 0, 40)
-Content.BackgroundTransparency = 1
+Content.Parent = MainFrame; Content.Size = UDim2.new(1, 0, 1, -40); Content.Position = UDim2.new(0, 0, 0, 40); Content.BackgroundTransparency = 1
 
-local function makeBtn(parent, posY, color, text)
-    local b = Instance.new("TextButton")
+-- 🟢 ปุ่ม Auto Portal
+local PortalBtn = Instance.new("TextButton")
+PortalBtn.Parent = Content; PortalBtn.Size = UDim2.new(1, -30, 0, 28); PortalBtn.Position = UDim2.new(0, 15, 0, 8)
+PortalBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75); PortalBtn.Text = "🔴 Auto Portal: OFF"; PortalBtn.TextColor3 = Color3.fromRGB(255, 255, 255); PortalBtn.TextSize = 12; PortalBtn.Font = Enum.Font.GothamBold
+local PortalCorner = Instance.new("UICorner"); PortalCorner.CornerRadius = UDim.new(0, 6); PortalCorner.Parent = PortalBtn
 
-    b.Parent = parent
-    b.Size = UDim2.new(1, -30, 0, 28)
-    b.Position = UDim2.new(0, 15, 0, posY)
-    b.BackgroundColor3 = color
-    b.Text = text
-    b.TextColor3 = Color3.fromRGB(255, 255, 255)
-    b.TextSize = 12
-    b.Font = Enum.Font.GothamBold
+-- 🟢 ปุ่ม Auto Place
+local PlaceBtn = Instance.new("TextButton")
+PlaceBtn.Parent = Content; PlaceBtn.Size = UDim2.new(1, -30, 0, 28); PlaceBtn.Position = UDim2.new(0, 15, 0, 40)
+PlaceBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75); PlaceBtn.Text = "🔴 Auto Place: OFF"; PlaceBtn.TextColor3 = Color3.fromRGB(255, 255, 255); PlaceBtn.TextSize = 12; PlaceBtn.Font = Enum.Font.GothamBold
+local PlaceCorner = Instance.new("UICorner"); PlaceCorner.CornerRadius = UDim.new(0, 6); PlaceCorner.Parent = PlaceBtn
 
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+-- 🔵 ปุ่ม Auto Join
+local JoinBtn = Instance.new("TextButton")
+JoinBtn.Parent = Content; JoinBtn.Size = UDim2.new(1, -30, 0, 28); JoinBtn.Position = UDim2.new(0, 15, 0, 72)
+JoinBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75); JoinBtn.Text = "🔴 Auto Join: OFF"; JoinBtn.TextColor3 = Color3.fromRGB(255, 255, 255); JoinBtn.TextSize = 12; JoinBtn.Font = Enum.Font.GothamBold
+local JoinCorner = Instance.new("UICorner"); JoinCorner.CornerRadius = UDim.new(0, 6); JoinCorner.Parent = JoinBtn
 
-    return b
-end
+-- ⏳ ปุ่มตั้งเวลารอก่อนกดเริ่ม (Start Delay)
+local DelayBtn = Instance.new("TextButton")
+DelayBtn.Parent = Content; DelayBtn.Size = UDim2.new(1, -30, 0, 28); DelayBtn.Position = UDim2.new(0, 15, 0, 104)
+DelayBtn.BackgroundColor3 = Color3.fromRGB(60, 80, 100); DelayBtn.Text = "⏳ Start Delay: " .. _G.StartDelay .. "s"
+DelayBtn.TextColor3 = Color3.fromRGB(255, 220, 120); DelayBtn.TextSize = 12; DelayBtn.Font = Enum.Font.GothamBold
+local DelayCorner = Instance.new("UICorner"); DelayCorner.CornerRadius = UDim.new(0, 6); DelayCorner.Parent = DelayBtn
 
-local PortalBtn =
-    makeBtn(Content, 8,
-        Color3.fromRGB(255, 75, 75),
-        "🔴 Auto Portal: OFF"
-    )
+-- ⚙️ ปุ่มเลือกโหมดการวางตัว
+local ModeBtn = Instance.new("TextButton")
+ModeBtn.Parent = Content; ModeBtn.Size = UDim2.new(1, -30, 0, 28); ModeBtn.Position = UDim2.new(0, 15, 0, 136)
+ModeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 120); ModeBtn.Text = "⚙️ Mode: Equip Best"
+ModeBtn.TextColor3 = Color3.fromRGB(220, 180, 255); ModeBtn.TextSize = 12; ModeBtn.Font = Enum.Font.GothamBold
+local ModeCorner = Instance.new("UICorner"); ModeCorner.CornerRadius = UDim.new(0, 6); ModeCorner.Parent = ModeBtn
 
-local PlaceBtn =
-    makeBtn(Content, 40,
-        Color3.fromRGB(255, 75, 75),
-        "🔴 Auto Place: OFF"
-    )
+-- 🎯 ปุ่มเลือก Rank
+local RankBtn = Instance.new("TextButton")
+RankBtn.Parent = Content; RankBtn.Size = UDim2.new(1, -30, 0, 28); RankBtn.Position = UDim2.new(0, 15, 0, 168)
+RankBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70); RankBtn.Text = "🎯 Rank: " .. allPortals[selectedRankIndex]
+RankBtn.TextColor3 = Color3.fromRGB(255, 220, 100); RankBtn.TextSize = 12; RankBtn.Font = Enum.Font.GothamBold
+local RankCorner = Instance.new("UICorner"); RankCorner.CornerRadius = UDim.new(0, 6); RankCorner.Parent = RankBtn
 
-local JoinBtn =
-    makeBtn(Content, 72,
-        Color3.fromRGB(255, 75, 75),
-        "🔴 Auto Join: OFF"
-    )
+-- 📁 ปุ่มเลือกทีม Preset
+local TeamBtn = Instance.new("TextButton")
+TeamBtn.Parent = Content; TeamBtn.Size = UDim2.new(1, -30, 0, 28); TeamBtn.Position = UDim2.new(0, 15, 0, 200)
+TeamBtn.BackgroundColor3 = Color3.fromRGB(40, 60, 90); TeamBtn.Text = "📁 Preset: " .. _G.CurrentTeam
+TeamBtn.TextColor3 = Color3.fromRGB(100, 220, 255); TeamBtn.TextSize = 12; TeamBtn.Font = Enum.Font.GothamBold
+local TeamCorner = Instance.new("UICorner"); TeamCorner.CornerRadius = UDim.new(0, 6); TeamCorner.Parent = TeamBtn
 
-local DelayBtn =
-    makeBtn(Content, 104,
-        Color3.fromRGB(60, 80, 100),
-        "⏳ Start Delay: 3s"
-    )
+-- 🎙️ ปุ่มอัดตำแหน่ง
+local RecordBtn = Instance.new("TextButton")
+RecordBtn.Parent = Content; RecordBtn.Size = UDim2.new(1, -30, 0, 28); RecordBtn.Position = UDim2.new(0, 15, 0, 232)
+RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 30); RecordBtn.Text = "🎙️ Start Record Placement"
+RecordBtn.TextColor3 = Color3.fromRGB(255, 255, 255); RecordBtn.TextSize = 12; RecordBtn.Font = Enum.Font.GothamBold
+local RecordCorner = Instance.new("UICorner"); RecordCorner.CornerRadius = UDim.new(0, 6); RecordCorner.Parent = RecordBtn
 
-local ModeBtn =
-    makeBtn(Content, 136,
-        Color3.fromRGB(80, 50, 120),
-        "⚙️ Mode: Equip Best"
-    )
-
-local RankBtn =
-    makeBtn(Content, 168,
-        Color3.fromRGB(50, 50, 70),
-        "🎯 Rank: A-Rank Portal"
-    )
-
-local TeamBtn =
-    makeBtn(Content, 200,
-        Color3.fromRGB(40, 60, 90),
-        "📁 Preset: Team1"
-    )
-
-local RecordBtn =
-    makeBtn(Content, 232,
-        Color3.fromRGB(200, 120, 30),
-        "🎙️ Start Record Placement"
-    )
-
-DelayBtn.TextColor3 = Color3.fromRGB(255, 220, 120)
-ModeBtn.TextColor3 = Color3.fromRGB(220, 180, 255)
-RankBtn.TextColor3 = Color3.fromRGB(255, 220, 100)
-TeamBtn.TextColor3 = Color3.fromRGB(100, 220, 255)
-
+-- Status Label
 local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Parent = Content
-StatusLabel.Size = UDim2.new(1, -30, 0, 20)
-StatusLabel.Position = UDim2.new(0, 15, 0, 268)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Status: Waiting..."
-StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-StatusLabel.TextSize = 11
-StatusLabel.Font = Enum.Font.GothamSemibold
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+StatusLabel.Parent = Content; StatusLabel.Size = UDim2.new(1, -30, 0, 20); StatusLabel.Position = UDim2.new(0, 15, 0, 268)
+StatusLabel.BackgroundTransparency = 1; StatusLabel.Text = "Status: Waiting..."; StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150); StatusLabel.TextSize = 11; StatusLabel.Font = Enum.Font.GothamSemibold; StatusLabel.TextXAlignment = Enum.TextXAlignment.Center
 
 -- ==========================================
--- 🎛️ DEBUFF PANEL
+-- ⚙️ ระบบการทำงานปุ่ม
 -- ==========================================
+MinBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    local targetSize = isMinimized and minSize or fullSize
+    MinBtn.Text = isMinimized and "+" or "–"
+    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+end)
 
-local DebuffPanel = Instance.new("Frame")
-DebuffPanel.Parent = MainFrame
-DebuffPanel.Size = UDim2.new(1, 0, 1, -40)
-DebuffPanel.Position = UDim2.new(0, 0, 0, 40)
-DebuffPanel.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
-DebuffPanel.BorderSizePixel = 0
-DebuffPanel.Visible = false
-DebuffPanel.ZIndex = 10
-
-local DebuffTitle = Instance.new("TextLabel")
-DebuffTitle.Parent = DebuffPanel
-DebuffTitle.Size = UDim2.new(1, -30, 0, 24)
-DebuffTitle.Position = UDim2.new(0, 15, 0, 8)
-DebuffTitle.BackgroundTransparency = 1
-DebuffTitle.Text = "🎛️ Debuff Limits — por elemento"
-DebuffTitle.TextColor3 = Color3.fromRGB(200, 150, 255)
-DebuffTitle.TextSize = 11
-DebuffTitle.Font = Enum.Font.GothamBold
-DebuffTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-local SliderScroll = Instance.new("ScrollingFrame")
-SliderScroll.Parent = DebuffPanel
-SliderScroll.Size = UDim2.new(1, 0, 1, -38)
-SliderScroll.Position = UDim2.new(0, 0, 0, 38)
-SliderScroll.BackgroundTransparency = 1
-SliderScroll.BorderSizePixel = 0
-SliderScroll.ScrollBarThickness = 3
-SliderScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 200)
-SliderScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-SliderScroll.ZIndex = 11
-
-local SliderList = Instance.new("UIListLayout")
-SliderList.Parent = SliderScroll
-SliderList.SortOrder = Enum.SortOrder.LayoutOrder
-SliderList.Padding = UDim.new(0, 6)
-
-local SliderPad = Instance.new("UIPadding")
-SliderPad.Parent = SliderScroll
-SliderPad.PaddingLeft = UDim.new(0, 15)
-SliderPad.PaddingRight = UDim.new(0, 15)
-SliderPad.PaddingTop = UDim.new(0, 6)
-
--- ==========================================
--- 🎚️ SLIDERS
--- ==========================================
-
-local sliderRows = {}
-
-local function updateCanvas()
-    task.defer(function()
-        SliderScroll.CanvasSize = UDim2.new(
-            0,
-            0,
-            0,
-            SliderList.AbsoluteContentSize.Y + 20
-        )
-    end)
-end
-
-local function makeSliderRow(elementName)
-    if sliderRows[elementName] then
-        return
+DelayBtn.MouseButton1Click:Connect(function()
+    _G.StartDelay = _G.StartDelay + 1
+    if _G.StartDelay > 5 then
+        _G.StartDelay = 1
     end
+    DelayBtn.Text = "⏳ Start Delay: " .. _G.StartDelay .. "s"
+end)
 
-    local limit =
-        _G.DebuffLimits[elementName]
-        or DEFAULT_LIMIT
+ModeBtn.MouseButton1Click:Connect(function()
+    if _G.PlaceMode == "EquipBest" then
+        _G.PlaceMode = "Preset"
+        ModeBtn.Text = "⚙️ Mode: Preset Team"
+        ModeBtn.BackgroundColor3 = Color3.fromRGB(50, 100, 120)
+    else
+        _G.PlaceMode = "EquipBest"
+        ModeBtn.Text = "⚙️ Mode: Equip Best"
+        ModeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 120)
+    end
+end)
 
-    _G.DebuffLimits[elementName] = limit
+TeamBtn.MouseButton1Click:Connect(function()
+    if _G.CurrentTeam == "Team1" then _G.CurrentTeam = "Team2"
+    elseif _G.CurrentTeam == "Team2" then _G.CurrentTeam = "Team3"
+    else _G.CurrentTeam = "Team1" end
+    
+    local count = #(_G.TeamsData[_G.CurrentTeam] or {})
+    TeamBtn.Text = "📁 Preset: " .. _G.CurrentTeam .. " (" .. count .. " towers)"
+end)
 
-    local row = Instance.new("Frame")
-    row.Parent = SliderScroll
-    row.Size = UDim2.new(1, 0, 0, 46)
-    row.BackgroundColor3 = Color3.fromRGB(28, 22, 40)
-    row.BorderSizePixel = 0
-    row.ZIndex = 12
+RecordBtn.MouseButton1Click:Connect(function()
+    _G.IsRecording = not _G.IsRecording
+    if _G.IsRecording then
+        _G.TeamsData[_G.CurrentTeam] = {}
+        RecordBtn.Text = "⏹️ Stop & Save " .. _G.CurrentTeam
+        RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        StatusLabel.Text = "Recording: Place towers now!"
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    else
+        savePresetsToFile()
+        local count = #(_G.TeamsData[_G.CurrentTeam] or {})
+        RecordBtn.Text = "🎙️ Start Record Placement"
+        RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 30)
+        TeamBtn.Text = "📁 Preset: " .. _G.CurrentTeam .. " (" .. count .. " towers)"
+        StatusLabel.Text = "Saved " .. count .. " towers to " .. _G.CurrentTeam
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    end
+end)
 
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+RankBtn.MouseButton1Click:Connect(function()
+    selectedRankIndex = selectedRankIndex + 1
+    if selectedRankIndex > #allPortals then selectedRankIndex = 1 end
+    RankBtn.Text = "🎯 Rank: " .. allPortals[selectedRankIndex]
+end)
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Parent = row
-    nameLabel.Size = UDim2.new(0.6, 0, 0, 18)
-    nameLabel.Position = UDim2.new(0, 8, 0, 4)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = elementName
-    nameLabel.TextColor3 = Color3.fromRGB(220, 180, 255)
-    nameLabel.TextSize = 10
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.ZIndex = 13
-
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Parent = row
-    valLabel.Size = UDim2.new(0.35, 0, 0, 18)
-    valLabel.Position = UDim2.new(0.63, 0, 0, 4)
-    valLabel.BackgroundTransparency = 1
-    valLabel.Text = "Max: " .. limit .. "%"
-    valLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
-    valLabel.TextSize = 10
-    valLabel.Font = Enum.Font.GothamBold
-    valLabel.TextXAlignment = Enum.TextXAlignment.Right
-    valLabel.ZIndex = 13
-
-    local track = Instance.new("Frame")
-    track.Parent = row
-    track.Size = UDim2.new(1, -16, 0, 14)
-    track.Position = UDim2.new(0, 8, 0, 26)
-    track.BackgroundColor3 = Color3.fromRGB(40, 35, 55)
-    track.BorderSizePixel = 0
-    track.ZIndex = 13
-
-    Instance.new("UICorner", track).CornerRadius = UDim.new(0, 7)
-
-    local fill = Instance.new("Frame")
-    fill.Parent = track
-    fill.Size = UDim2.new(limit / 100, 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(200, 150, 50)
-    fill.BorderSizePixel = 0
-    fill.ZIndex = 14
-
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 7)
-
-    local thumb = Instance.new("TextButton")
-    thumb.Parent = track
-    thumb.Size = UDim2.new(0, 14, 0, 14)
-    thumb.Position = UDim2.new(limit / 100, -7, 0, 0)
-    thumb.BackgroundColor3 = Color3.fromRGB(255, 200, 80)
-    thumb.Text = ""
-    thumb.BorderSizePixel = 0
-    thumb.ZIndex = 15
-
-    Instance.new("UICorner", thumb).CornerRadius = UDim.new(1, 0)
-
-    local function updateColor(value)
-        if value <= 30 then
-            fill.BackgroundColor3 = Color3.fromRGB(220, 80, 80)
-            thumb.BackgroundColor3 = Color3.fromRGB(255, 120, 120)
-
-        elseif value <= 60 then
-            fill.BackgroundColor3 = Color3.fromRGB(200, 150, 50)
-            thumb.BackgroundColor3 = Color3.fromRGB(255, 200, 80)
-
-        else
-            fill.BackgroundColor3 = Color3.fromRGB(80, 180, 100)
-            thumb.BackgroundColor3 = Color3.fromRGB(120, 220, 140)
+local function isSoloIsland()
+    for _, gui in pairs(player.PlayerGui:GetDescendants()) do
+        if gui.Name == "MapName" and gui:IsA("TextLabel") then
+            local txt = string.lower(gui.Text or "")
+            if string.find(txt, "solo island") then
+                return true
+            end
         end
     end
-
-    updateColor(limit)
-
-    local dragging = false
-
-    thumb.MouseButton1Down:Connect(function()
-        dragging = true
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then
-            return
-        end
-
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement then
-            return
-        end
-
-        local ratio =
-            (input.Position.X - track.AbsolutePosition.X)
-            / track.AbsoluteSize.X
-
-        ratio = math.clamp(ratio, 0, 1)
-
-        local newValue = math.floor(ratio * 100 + 0.5)
-
-        _G.DebuffLimits[elementName] = newValue
-
-        fill.Size = UDim2.new(
-            ratio,
-            0,
-            1,
-            0
-        )
-
-        thumb.Position = UDim2.new(
-            ratio,
-            -7,
-            0,
-            0
-        )
-
-        valLabel.Text =
-            "Max: " .. newValue .. "%"
-
-        updateColor(newValue)
-    end)
-
-    sliderRows[elementName] = true
-
-    updateCanvas()
-end
-
--- ==========================================
--- PREDEFINED DEBUFF SLIDERS
--- ==========================================
--- Todos os tipos já existem desde o início.
--- Não dependem de scan do inventário.
-local elementOrder = {
-    "DARK",
-    "FIRE",
-    "NATURE",
-    "ROSE",
-    "LIGHT",
-    "STORM",
-    "WIND",
-    "WATER"
-}
-
-for _, elementName in ipairs(elementOrder) do
-    makeSliderRow(elementName)
-end
-
-updateCanvas()
-
--- ==========================================
--- 🔍 DEBUFF DETECTION
--- ==========================================
---
--- IMPORTANTE:
--- A existência dentro de NegativeBuffs é a
--- primeira evidência.
---
--- Esta função procura evidências adicionais
--- para evitar tratar buffs positivos como
--- negativos caso o jogo misture estruturas.
--- ==========================================
-
-local function getBuffValue(buff)
-    if type(buff.Value) == "number" then
-        return buff.Value
-    end
-
-    if type(buff.Amount) == "number" then
-        return buff.Amount
-    end
-
-    if type(buff.Percentage) == "number" then
-        return buff.Percentage
-    end
-
-    if type(buff.Percent) == "number" then
-        return buff.Percent
-    end
-
-    return nil
-end
-
-local function getBuffName(buff)
-    if type(buff.Name) == "string" and buff.Name ~= "" then
-        return buff.Name
-    end
-
-    if type(buff.DisplayName) == "string"
-        and buff.DisplayName ~= ""
-    then
-        return buff.DisplayName
-    end
-
-    if type(buff.Element) == "string"
-        and buff.Element ~= ""
-    then
-        return buff.Element
-    end
-
-    if type(buff.Type) == "string"
-        and buff.Type ~= ""
-    then
-        return buff.Type
-    end
-
-    if type(buff.Id) == "string"
-        and buff.Id ~= ""
-    then
-        return buff.Id
-    end
-
-    return "Unknown"
-end
-
-local function hasNegativeText(value)
-    if type(value) ~= "string" then
-        return false
-    end
-
-    local text = string.lower(value)
-
-    return
-        string.find(text, "debuff", 1, true) ~= nil
-        or string.find(text, "negative", 1, true) ~= nil
-        or string.find(text, "reduction", 1, true) ~= nil
-        or string.find(text, "reduced", 1, true) ~= nil
-        or string.find(text, "decrease", 1, true) ~= nil
-        or string.find(text, "down", 1, true) ~= nil
-end
-
-local function isActuallyNegativeBuff(buff)
-    if type(buff) ~= "table" then
-        return false
-    end
-
-    -- ======================================
-    -- INDICADORES EXPLÍCITOS
-    -- ======================================
-
-    if buff.IsDebuff == true then
-        return true
-    end
-
-    if buff.Debuff == true then
-        return true
-    end
-
-    if buff.IsNegative == true then
-        return true
-    end
-
-    if buff.Negative == true then
-        return true
-    end
-
-    -- ======================================
-    -- TIPO
-    -- ======================================
-
-    if type(buff.Type) == "string" then
-        if hasNegativeText(buff.Type) then
-            return true
-        end
-    end
-
-    if type(buff.Category) == "string" then
-        if hasNegativeText(buff.Category) then
-            return true
-        end
-    end
-
-    if type(buff.Class) == "string" then
-        if hasNegativeText(buff.Class) then
-            return true
-        end
-    end
-
-    -- ======================================
-    -- NOME
-    -- ======================================
-
-    if type(buff.Name) == "string" then
-        if hasNegativeText(buff.Name) then
-            return true
-        end
-    end
-
-    -- ======================================
-    -- VALOR
-    -- ======================================
-
-    local value = getBuffValue(buff)
-
-    if type(value) == "number" and value < 0 then
-        return true
-    end
-
-    -- ======================================
-    -- CASO ESTEJA DENTRO DE NegativeBuffs
-    --
-    -- Se o jogo realmente usa NegativeBuffs
-    -- como uma categoria própria, isso serve
-    -- como fallback.
-    -- ======================================
-
-    if buff._FromNegativeBuffs == true then
-        return true
-    end
-
     return false
 end
 
--- ==========================================
--- 🔍 SCAN MEMORY
--- ==========================================
+local function checkNegativeWindDebuff()
+    local windValue = 0
+    pcall(function()
+        local hover = player.PlayerGui:FindFirstChild("HoverPortalClick")
+        if hover then
+            local elem = hover:FindFirstChild("Elemental")
+            if elem then
+                local scroll = elem:FindFirstChild("ScrollingFrame")
+                if scroll then
+                    local negWind = scroll:FindFirstChild("Negative_Wind")
+                    if negWind then
+                        local numLabel = negWind:FindFirstChild("Number")
+                        if numLabel and numLabel:IsA("TextLabel") then
+                            local text = numLabel.Text
+                            local extractedNum = string.match(text, "%d+")
+                            if extractedNum then windValue = tonumber(extractedNum) or 0 end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return windValue
+end
+
+local function executePlacements()
+    if _G.PlaceMode == "EquipBest" then
+        pcall(function()
+            local equipRemote = rs:WaitForChild("Remotes", 3):WaitForChild("Towers", 3):WaitForChild("EquipBestTowers", 3)
+            if equipRemote then
+                equipRemote:InvokeServer()
+            end
+        end)
+    else
+        local placeRemote = rs:WaitForChild("Remotes", 5)
+        if placeRemote then placeRemote = placeRemote:WaitForChild("Towers", 5)
+            if placeRemote then placeRemote = placeRemote:WaitForChild("PlaceTower", 5) end
+        end
+        
+        local currentPreset = _G.TeamsData[_G.CurrentTeam] or {}
+        if placeRemote and #currentPreset > 0 then
+            for loop = 1, 2 do
+                for _, args in ipairs(currentPreset) do
+                    pcall(function() placeRemote:FireServer(unpack(args)) end)
+                    task.wait(0.05)
+                end
+                task.wait(1)
+            end
+        end
+    end
+end
+
+local function getActivePriority()
+    local activePriority = {}
+    for i = selectedRankIndex, #allPortals do table.insert(activePriority, allPortals[i]) end
+    return activePriority
+end
 
 local function forceLoadInventory()
     pcall(function()
-        local drops =
-            player.PlayerGui:FindFirstChild("Drops")
-
-        if drops then
-            local display =
-                drops:FindFirstChild("Display")
-
-            if display then
-                display.Visible = true
-
-                task.wait(0.5)
-
-                display.Visible = false
-            end
-        end
+        local display = player.PlayerGui.Drops.Display
+        display.Visible = true
+        task.wait(0.3)
+        display.Visible = false
     end)
 end
 
-local function copyBuff(buff)
-    local entry = {}
+local function getBestPortalUUID()
+    local activePriority = getActivePriority()
 
-    for k, v in pairs(buff) do
-        entry[k] = v
-    end
+    for _, pName in ipairs(activePriority) do
+        local candidateUUIDs = {}
 
-    return entry
-end
+        for _, obj in pairs(getgc(true)) do
+            if type(obj) == "table" then
+                pcall(function()
+                    for key, val in pairs(obj) do
+                        if type(val) == "table" then
+                            local isMatch = false
+                            for _, v in pairs(val) do
+                                if v == pName then isMatch = true; break end
+                            end
 
-local function getAllPortalsFromMemory()
-    local portals = {}
-    local seen = {}
+                            if isMatch then
+                                local windDebuff = val.Negative_Wind or val.WindDebuff or 0
+                                if type(windDebuff) == "string" then
+                                    windDebuff = tonumber(string.match(windDebuff, "%d+")) or 0
+                                end
 
-    if not getgc then
-        return portals
-    end
+                                local uuid = nil
+                                if type(key) == "string" and #key >= 30 and string.find(key, "-") then uuid = key end
+                                for _, v in pairs(val) do
+                                    if type(v) == "string" and #v >= 30 and string.find(v, "-") then uuid = v; break end
+                                end
 
-    for _, obj in pairs(getgc(true)) do
-        if type(obj) == "table" then
-
-            pcall(function()
-
-                if obj.IsPortal ~= true then
-                    return
-                end
-
-                if not obj.PortalId then
-                    return
-                end
-
-                if not obj.DisplayName then
-                    return
-                end
-
-                local uuid = tostring(obj.PortalId)
-
-                if seen[uuid] then
-                    return
-                end
-
-                seen[uuid] = true
-
-                local negBuffs = {}
-                local posBuffs = {}
-
-                -- ==================================
-                -- NEGATIVE BUFFS
-                -- ==================================
-
-                if type(obj.NegativeBuffs) == "table" then
-
-                    for _, buff in pairs(obj.NegativeBuffs) do
-
-                        if type(buff) == "table" then
-
-                            local entry = copyBuff(buff)
-
-                            -- Marca a origem.
-                            entry._FromNegativeBuffs = true
-
-                            -- Só considera negativo se a
-                            -- estrutura indicar que realmente
-                            -- é negativo.
-                            if isActuallyNegativeBuff(entry) then
-                                table.insert(
-                                    negBuffs,
-                                    entry
-                                )
+                                if uuid then
+                                    table.insert(candidateUUIDs, {uuid = uuid, wind = windDebuff})
+                                end
                             end
                         end
                     end
-                end
-
-                -- ==================================
-                -- POSITIVE BUFFS
-                -- ==================================
-
-                if type(obj.PositiveBuffs) == "table" then
-
-                    for _, buff in pairs(obj.PositiveBuffs) do
-
-                        if type(buff) == "table" then
-                            table.insert(
-                                posBuffs,
-                                copyBuff(buff)
-                            )
-                        end
-                    end
-                end
-
-                table.insert(portals, {
-                    uuid = uuid,
-
-                    name = obj.DisplayName,
-
-                    rank = obj.PortalRank or "?",
-
-                    modifier = obj.PortalModifier or "",
-
-                    lives = obj.PortalLives or 0,
-
-                    maxLives = obj.PortalMaxLives or 0,
-
-                    rarity = obj.Rarity or "",
-
-                    negBuffs = negBuffs,
-
-                    posBuffs = posBuffs,
-                })
-
-            end)
-        end
-    end
-
-    return portals
-end
-
--- ==========================================
--- 🔎 DEBUG BUFF
--- ==========================================
-
-local function describeBuff(buff)
-    local name = getBuffName(buff)
-    local value = getBuffValue(buff)
-
-    local valueText =
-        type(value) == "number"
-        and tostring(value)
-        or "?"
-
-    return name .. " = " .. valueText
-end
-
--- ==========================================
--- ✅ FILTER PORTAL
--- ==========================================
-
-local function portalPassesFilter(portal)
-
-    -- ======================================
-    -- TODOS OS DEBUFFS REAIS
-    -- ======================================
-
-    for _, buff in ipairs(portal.negBuffs) do
-
-        local elemName = getBuffName(buff)
-
-        local rawValue = getBuffValue(buff)
-
-        if type(rawValue) ~= "number" then
-
-            -- Se não conseguimos descobrir o
-            -- valor, não vamos inventar um.
-            --
-            -- Considera o portal inválido porque
-            -- não dá para verificar o limite.
-
-            return false,
-                elemName .. " valor desconhecido"
-        end
-
-        -- ==================================
-        -- CONVERTE PARA MAGNITUDE POSITIVA
-        --
-        -- Só fazemos isso DEPOIS de confirmar
-        -- que o buff é negativo.
-        -- ==================================
-
-        local value = math.abs(rawValue)
-
-        -- ==================================
-        -- CRIA LIMITE AUTOMÁTICO
-        -- ==================================
-
-        if not _G.DebuffLimits[elemName] then
-            _G.DebuffLimits[elemName] =
-                DEFAULT_LIMIT
-        end
-
-        if not table.find(
-            _G.KnownNegatives,
-            elemName
-        ) then
-
-            table.insert(
-                _G.KnownNegatives,
-                elemName
-            )
-
-            makeSliderRow(elemName)
-        end
-
-        local limit =
-            _G.DebuffLimits[elemName]
-            or DEFAULT_LIMIT
-
-        -- ==================================
-        -- MAX É REALMENTE O MÁXIMO
-        -- ==================================
-
-        if value > limit then
-
-            return false,
-                elemName
-                .. " "
-                .. value
-                .. "% > "
-                .. limit
-                .. "%"
-        end
-    end
-
-    return true, ""
-end
-
--- ==========================================
--- 🎯 GET BEST PORTAL
--- ==========================================
-
-local function getBestPortalUUID()
-
-    forceLoadInventory()
-    task.wait(0.3)
-
-    local portals = getAllPortalsFromMemory()
-
-    -- ==========================================
-    -- 🎯 SOMENTE O RANK SELECIONADO
-    -- ==========================================
-
-    local selectedPortalName =
-        allPortals[selectedRankIndex]
-
-    local foundSelected = false
-
-    for _, portal in ipairs(portals) do
-
-        -- Ignora COMPLETAMENTE qualquer outro rank
-        if portal.name ~= selectedPortalName then
-            continue
-        end
-
-        foundSelected = true
-
-        -- ======================================
-        -- 🔍 VERIFICA OS DEBUFFS
-        -- ======================================
-
-        local passes, reason =
-            portalPassesFilter(portal)
-
-        if passes then
-
-            return portal.uuid, portal.name
-
-        else
-
-            StatusLabel.Text =
-                "Skip "
-                .. portal.name
-                .. ": "
-                .. reason
-
-            StatusLabel.TextColor3 =
-                Color3.fromRGB(
-                    255,
-                    150,
-                    80
-                )
-        end
-    end
-
-    -- ==========================================
-    -- NENHUM PORTAL DO RANK SELECIONADO
-    -- ==========================================
-
-    if not foundSelected then
-
-        StatusLabel.Text =
-            "No "
-            .. selectedPortalName
-            .. " found!"
-
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(
-                255,
-                150,
-                80
-            )
-    end
-
-    return nil, nil
-end
--- ==========================================
--- 🔘 DEBUFF PANEL
--- ==========================================
-
-local debuffOpen = false
-
-DebuffBtn.MouseButton1Click:Connect(function()
-
-    debuffOpen = not debuffOpen
-
-    DebuffPanel.Visible = debuffOpen
-
-    DebuffBtn.BackgroundColor3 =
-        debuffOpen
-        and Color3.fromRGB(100, 60, 160)
-        or Color3.fromRGB(60, 40, 90)
-end)
-
--- ==========================================
--- 🔽 MINIMIZE
--- ==========================================
-
-MinBtn.MouseButton1Click:Connect(function()
-
-    isMinimized = not isMinimized
-
-    MinBtn.Text =
-        isMinimized
-        and "+"
-        or "–"
-
-    TweenService:Create(
-        MainFrame,
-        TweenInfo.new(
-            0.3,
-            Enum.EasingStyle.Quart,
-            Enum.EasingDirection.Out
-        ),
-        {
-            Size =
-                isMinimized
-                and minSize
-                or fullSize
-        }
-    ):Play()
-end)
-
--- ==========================================
--- ⏳ DELAY
--- ==========================================
-
-DelayBtn.MouseButton1Click:Connect(function()
-
-    _G.StartDelay =
-        _G.StartDelay >= 15
-        and 1
-        or _G.StartDelay + 1
-
-    DelayBtn.Text =
-        "⏳ Start Delay: "
-        .. _G.StartDelay
-        .. "s"
-end)
-
--- ==========================================
--- ⚙️ MODE
--- ==========================================
-
-ModeBtn.MouseButton1Click:Connect(function()
-
-    if _G.PlaceMode == "EquipBest" then
-
-        _G.PlaceMode = "Preset"
-
-        ModeBtn.Text =
-            "⚙️ Mode: Preset Team"
-
-        ModeBtn.BackgroundColor3 =
-            Color3.fromRGB(50, 100, 120)
-
-    else
-
-        _G.PlaceMode = "EquipBest"
-
-        ModeBtn.Text =
-            "⚙️ Mode: Equip Best"
-
-        ModeBtn.BackgroundColor3 =
-            Color3.fromRGB(80, 50, 120)
-    end
-end)
-
--- ==========================================
--- 📁 TEAM
--- ==========================================
-
-TeamBtn.MouseButton1Click:Connect(function()
-
-    if _G.CurrentTeam == "Team1" then
-
-        _G.CurrentTeam = "Team2"
-
-    elseif _G.CurrentTeam == "Team2" then
-
-        _G.CurrentTeam = "Team3"
-
-    else
-
-        _G.CurrentTeam = "Team1"
-    end
-
-    local count =
-        #(_G.TeamsData[_G.CurrentTeam] or {})
-
-    TeamBtn.Text =
-        "📁 Preset: "
-        .. _G.CurrentTeam
-        .. " ("
-        .. count
-        .. " towers)"
-end)
-
--- ==========================================
--- 🎙️ RECORD
--- ==========================================
-
-RecordBtn.MouseButton1Click:Connect(function()
-
-    _G.IsRecording =
-        not _G.IsRecording
-
-    if _G.IsRecording then
-
-        _G.TeamsData[_G.CurrentTeam] = {}
-
-        RecordBtn.Text =
-            "⏹️ Stop & Save "
-            .. _G.CurrentTeam
-
-        RecordBtn.BackgroundColor3 =
-            Color3.fromRGB(200, 50, 50)
-
-        StatusLabel.Text =
-            "Recording: Place towers now!"
-
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(255, 100, 100)
-
-    else
-
-        savePresetsToFile()
-
-        local count =
-            #(_G.TeamsData[_G.CurrentTeam] or {})
-
-        RecordBtn.Text =
-            "🎙️ Start Record Placement"
-
-        RecordBtn.BackgroundColor3 =
-            Color3.fromRGB(200, 120, 30)
-
-        TeamBtn.Text =
-            "📁 Preset: "
-            .. _G.CurrentTeam
-            .. " ("
-            .. count
-            .. " towers)"
-
-        StatusLabel.Text =
-            "Saved "
-            .. count
-            .. " towers to "
-            .. _G.CurrentTeam
-
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(100, 255, 100)
-    end
-end)
-
--- ==========================================
--- 🎯 RANK
--- ==========================================
-
-RankBtn.MouseButton1Click:Connect(function()
-
-    selectedRankIndex =
-        selectedRankIndex >= #allPortals
-        and 1
-        or selectedRankIndex + 1
-
-    RankBtn.Text =
-        "🎯 Rank: "
-        .. allPortals[selectedRankIndex]
-end)
-
--- ==========================================
--- 🏝️ SOLO ISLAND
--- ==========================================
-
-local function isSoloIsland()
-
-    for _, gui in pairs(
-        player.PlayerGui:GetDescendants()
-    ) do
-
-        if gui.Name == "MapName"
-            and gui:IsA("TextLabel")
-        then
-
-            local text =
-                string.lower(
-                    gui.Text or ""
-                )
-
-            if string.find(
-                text,
-                "solo island",
-                1,
-                true
-            ) then
-                return true
-            end
-        end
-    end
-
-    return false
-end
--- ==========================================
--- 🗼 PLACE / EQUIP TOWERS
--- ==========================================
-
-local function executePlacements()
-
-    if _G.PlaceMode == "EquipBest" then
-
-        StatusLabel.Text = "⏳ Waiting for match..."
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(255, 200, 100)
-
-        -- Dá tempo para a Solo Island carregar
-        task.wait(3)
-
-        local Event =
-            rs:WaitForChild("Remotes", 10)
-            :WaitForChild("Towers", 10)
-            :WaitForChild("EquipBestTowers", 10)
-
-        for attempt = 1, 3 do
-
-            if not _G.AutoPlace then
-                return false
-            end
-
-            StatusLabel.Text =
-                "⚙️ Equip Best (" .. attempt .. "/3)"
-
-            local success, result =
-                pcall(function()
-                    return Event:InvokeServer()
                 end)
-
-            if success then
-
-                StatusLabel.Text =
-                    "✅ Best Towers Equipped"
-
-                StatusLabel.TextColor3 =
-                    Color3.fromRGB(100, 255, 150)
-
-                task.wait(1)
-
-                return true
             end
-
-            warn(
-                "[AutoPortal] EquipBest attempt "
-                .. attempt
-                .. " failed:",
-                result
-            )
-
-            task.wait(2)
         end
 
-        StatusLabel.Text =
-            "❌ Equip Best failed"
+        for _, portalInfo in ipairs(candidateUUIDs) do
+            local uiWind = checkNegativeWindDebuff()
+            local finalWind = math.max(portalInfo.wind, uiWind)
 
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(255, 80, 80)
-
-        return false
-    end
-
-    -- ======================================
-    -- PRESET MODE
-    -- ======================================
-
-    local r =
-        rs:WaitForChild("Remotes", 5)
-
-    if r then
-        r =
-            r:WaitForChild("Towers", 5)
-    end
-
-    if r then
-        r =
-            r:WaitForChild("PlaceTower", 5)
-    end
-
-    local preset =
-        _G.TeamsData[_G.CurrentTeam]
-        or {}
-
-    if not r or #preset == 0 then
-        return false
-    end
-
-    for _ = 1, 2 do
-
-        for _, args in ipairs(preset) do
-
-            pcall(function()
-                r:FireServer(
-                    unpack(args)
-                )
-            end)
-
-            task.wait(0.05)
+            if finalWind < maxAllowedWindDebuff then
+                return portalInfo.uuid, pName, finalWind
+            end
         end
-
-        task.wait(1)
     end
 
-    return true
+    return nil, nil, 0
 end
-
--- ==========================================
--- ▶️ START
--- ==========================================
 
 local function clickStart()
-
     pcall(function()
-
-        local r =
-            rs:WaitForChild("Remotes", 3)
-            :WaitForChild("Coop", 3)
-            :WaitForChild("Start", 3)
-
-        if r then
-            r:InvokeServer()
-        end
+        local startRemote = rs:WaitForChild("Remotes", 3):WaitForChild("Coop", 3):WaitForChild("Start", 3)
+        if startRemote then startRemote:InvokeServer() end
     end)
 end
 
 -- ==========================================
--- 🔄 AUTO PORTAL LOOP
+-- 🔄 ลูปการทำงานหลัก (Auto Portal / Auto Place)
 -- ==========================================
-
-local AutoPortalLoopRunning = false
-local AutoPortalBusy = false
-local AutoPortalRunId = 0
-
 local function autoPortalLoop()
-
-    -- Impede que dois loops do Auto Portal rodem ao mesmo tempo.
-    if AutoPortalLoopRunning then
-        return
-    end
-
-    AutoPortalLoopRunning = true
-    AutoPortalRunId = AutoPortalRunId + 1
-
-    local thisRunId = AutoPortalRunId
-
     task.spawn(function()
+        local hasPlacedTowers = false
 
-        local hasPlaced = false
-
-        while _G.AutoPortal
-            and thisRunId == AutoPortalRunId
-        do
-
-            -- Nunca tenta criar outro portal enquanto já estamos
-            -- dentro de um ciclo de portal/match.
-            if AutoPortalBusy then
-                task.wait(1)
-                continue
-            end
-
+        while _G.AutoPortal do
             if isSoloIsland() then
+                StatusLabel.Text = "In Match: Solo Island"
+                StatusLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
 
-                StatusLabel.Text =
-                    "In Match: Solo Island"
-
-                StatusLabel.TextColor3 =
-                    Color3.fromRGB(255, 170, 0)
-
-                if _G.AutoPlace
-                    and not hasPlaced
-                then
-
+                if _G.AutoPlace and not hasPlacedTowers then
                     if _G.PlaceMode == "EquipBest" then
-
-                        StatusLabel.Text =
-                            "Equipping Best Towers..."
-
+                        StatusLabel.Text = "Equipping Best Towers..."
                     else
-
-                        StatusLabel.Text =
-                            "Placing Towers..."
+                        StatusLabel.Text = "Placing Towers (" .. _G.CurrentTeam .. ")..."
                     end
-
-                    StatusLabel.TextColor3 =
-                        Color3.fromRGB(255, 150, 255)
-
+                    
+                    StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 255)
                     executePlacements()
-
+                    
                     task.wait(1)
-
+                    StatusLabel.Text = "Clicking Start..."
                     clickStart()
-
-                    hasPlaced = true
+                    
+                    hasPlacedTowers = true
                 end
-
                 task.wait(2)
-
             else
+                hasPlacedTowers = false 
 
-                hasPlaced = false
-
-                StatusLabel.Text =
-                    "🔄 Force loading inventory..."
-
-                StatusLabel.TextColor3 =
-                    Color3.fromRGB(255, 200, 50)
-
-                -- Sempre força uma atualização antes de procurar.
+                StatusLabel.Text = "Loading Inventory..."
+                StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
                 forceLoadInventory()
-                task.wait(0.5)
 
-                local uuid, portalName =
-                    getBestPortalUUID()
+                StatusLabel.Text = "Scanning Portals..."
+                local uuid, portalName, windDebuff = getBestPortalUUID()
 
-                -- ==================================
-                -- PORTAL ENCONTRADO
-                -- ==================================
+                if uuid then
+                    StatusLabel.Text = "Found: " .. portalName .. " (-" .. windDebuff .. "%)"
+                    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
 
-                if uuid and not AutoPortalBusy then
+                    pcall(function() activateRemote:InvokeServer(uuid) end)
 
-                    -- Trava imediatamente. Isso evita que outro
-                    -- ciclo tente ativar outro portal ao mesmo tempo.
-                    AutoPortalBusy = true
-
-                    StatusLabel.Text =
-                        "Found: "
-                        .. portalName
-
-                    StatusLabel.TextColor3 =
-                        Color3.fromRGB(100, 255, 100)
-
-                    local activateOk, activateResult =
-                        pcall(function()
-                            return activateRemote:InvokeServer(uuid)
-                        end)
-
-                    -- Se o servidor recusou/erro, libera a trava
-                    -- e deixa o próximo scan tentar novamente.
-                    if not activateOk or activateResult == false then
-
-                        warn(
-                            "[AutoPortal] ActivateCoopPortal failed:",
-                            activateResult
-                        )
-
-                        AutoPortalBusy = false
-
-                        StatusLabel.Text =
-                            "❌ Portal failed. Retry in 10s..."
-
-                        StatusLabel.TextColor3 =
-                            Color3.fromRGB(255, 80, 80)
-
-                        task.wait(10)
-                        continue
-                    end
-
-                    -- ==================================
-                    -- START DELAY
-                    -- ==================================
-
-                    for i =
-                        _G.StartDelay,
-                        1,
-                        -1
-                    do
-
-                        if not _G.AutoPortal
-                            or thisRunId ~= AutoPortalRunId
-                        then
-                            AutoPortalBusy = false
-                            break
-                        end
-
-                        -- Se já entramos na Solo Island, não continua
-                        -- disparando Start/portal novamente.
-                        if isSoloIsland() then
-                            break
-                        end
-
-                        StatusLabel.Text =
-                            "Waiting Alt Join: "
-                            .. i
-                            .. "s..."
-
-                        StatusLabel.TextColor3 =
-                            Color3.fromRGB(255, 200, 50)
-
+                    for i = _G.StartDelay, 1, -1 do
+                        StatusLabel.Text = "Waiting Alt Join: " .. i .. "s..."
+                        StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
                         task.wait(1)
                     end
 
-                    if _G.AutoPortal
-                        and thisRunId == AutoPortalRunId
-                        and not isSoloIsland()
-                    then
+                    StatusLabel.Text = "Clicking Start (1)..."
+                    clickStart()
+                    task.wait(5)
 
-                        StatusLabel.Text =
-                            "Clicking Start (1)..."
-
-                        clickStart()
-
-                        task.wait(5)
-
-                        if not isSoloIsland() then
-                            StatusLabel.Text =
-                                "Clicking Start (2)..."
-
-                            clickStart()
-
-                            task.wait(3)
-                        end
-                    end
-
-                    -- O ciclo fica bloqueado enquanto estiver na match.
-                    -- Quando sair da Solo Island, libera para procurar
-                    -- o próximo portal.
-                    if isSoloIsland() then
-                        StatusLabel.Text =
-                            "🟢 Portal active: Solo Island"
-
-                        StatusLabel.TextColor3 =
-                            Color3.fromRGB(100, 255, 150)
-                    end
-
-                    while _G.AutoPortal
-                        and thisRunId == AutoPortalRunId
-                        and isSoloIsland()
-                    do
-                        task.wait(2)
-                    end
-
-                    AutoPortalBusy = false
-
+                    StatusLabel.Text = "Clicking Start (2)..."
+                    clickStart()
+                    task.wait(3)
                 else
-
-                    -- ==================================
-                    -- NENHUM PORTAL PASSOU
-                    --
-                    -- NÃO ignora os sliders.
-                    -- NÃO aumenta o limite.
-                    -- NÃO escolhe portal ruim.
-                    -- ==================================
-
-                    StatusLabel.Text =
-                        "No Safe Portals! Retry in 10s..."
-
-                    StatusLabel.TextColor3 =
-                        Color3.fromRGB(255, 100, 100)
-
-                    -- Não fica fazendo scan em loop apertado.
-                    -- A cada 10 segundos força novamente o inventário
-                    -- e procura usando os sliders atuais.
-                    task.wait(10)
+                    StatusLabel.Text = "No Safe Portals! Retrying..."
+                    StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                    task.wait(3)
                 end
             end
         end
 
-        AutoPortalBusy = false
-        AutoPortalLoopRunning = false
-
-        StatusLabel.Text =
-            "Status: Idle"
-
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(150, 150, 150)
+        StatusLabel.Text = "Status: Idle"
+        StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
     end)
 end
 
 -- ==========================================
--- 🔄 AUTO JOIN LOOP
+-- 🔵 ลูปการทำงาน Auto Join + Auto Place (สำหรับไอดีรอง)
 -- ==========================================
-
 local function autoJoinLoop()
-
     task.spawn(function()
-
-        local hasPlacedAlt = false
+        local hasPlacedTowersAlt = false
 
         while _G.AutoJoin do
-
             if isSoloIsland() then
+                StatusLabel.Text = "In Match: Solo Island"
+                StatusLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
 
-                StatusLabel.Text =
-                    "In Match: Solo Island"
-
-                StatusLabel.TextColor3 =
-                    Color3.fromRGB(255, 170, 0)
-
-                if _G.AutoPlace
-                    and not hasPlacedAlt
-                then
-
+                -- 🌟 เพิ่มระบบวางตัวสำหรับไอดีรอง (Alt Account)
+                if _G.AutoPlace and not hasPlacedTowersAlt then
                     if _G.PlaceMode == "EquipBest" then
-
-                        StatusLabel.Text =
-                            "Alt: Equipping Best Towers..."
-
+                        StatusLabel.Text = "Alt: Equipping Best Towers..."
                     else
-
-                        StatusLabel.Text =
-                            "Alt: Placing Towers..."
+                        StatusLabel.Text = "Alt: Placing Towers (" .. _G.CurrentTeam .. ")..."
                     end
-
-                    StatusLabel.TextColor3 =
-                        Color3.fromRGB(255, 150, 255)
+                    StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 255)
 
                     executePlacements()
-
-                    hasPlacedAlt = true
+                    hasPlacedTowersAlt = true
                 end
-
                 task.wait(2)
-
             else
-
-                hasPlacedAlt = false
+                hasPlacedTowersAlt = false -- รีเซ็ตเมื่อย้อนกลับมาล็อบบี้
 
                 pcall(function()
+                    local char = player.Character or player.CharacterAdded:Wait()
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
 
-                    local char =
-                        player.Character
-                        or player.CharacterAdded:Wait()
+                    for _, prompt in pairs(workspace:GetDescendants()) do
+                        if prompt:IsA("ProximityPrompt") and _G.AutoJoin then
+                            local actionText = string.lower(prompt.ActionText or "")
+                            local objectText = string.lower(prompt.ObjectText or "")
+                            local parentName = string.lower(prompt.Parent and prompt.Parent.Name or "")
 
-                    local hrp =
-                        char:FindFirstChild(
-                            "HumanoidRootPart"
-                        )
+                            if string.find(actionText, "join") or string.find(actionText, "portal") or 
+                               string.find(objectText, "portal") or string.find(parentName, "portal") then
 
-                    for _, prompt in pairs(
-                        workspace:GetDescendants()
-                    ) do
+                                local parentPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
 
-                        if not _G.AutoJoin then
-                            break
-                        end
+                                if hrp and parentPart then
+                                    StatusLabel.Text = "Joining Portal..."
+                                    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 255)
 
-                        if prompt:IsA(
-                            "ProximityPrompt"
-                        ) then
-
-                            local action =
-                                string.lower(
-                                    prompt.ActionText or ""
-                                )
-
-                            local object =
-                                string.lower(
-                                    prompt.ObjectText or ""
-                                )
-
-                            local parentName =
-                                string.lower(
-                                    prompt.Parent
-                                    and prompt.Parent.Name
-                                    or ""
-                                )
-
-                            if
-                                string.find(
-                                    action,
-                                    "join",
-                                    1,
-                                    true
-                                )
-                                or
-                                string.find(
-                                    action,
-                                    "portal",
-                                    1,
-                                    true
-                                )
-                                or
-                                string.find(
-                                    object,
-                                    "portal",
-                                    1,
-                                    true
-                                )
-                                or
-                                string.find(
-                                    parentName,
-                                    "portal",
-                                    1,
-                                    true
-                                )
-                            then
-
-                                local part
-
-                                if prompt.Parent:IsA(
-                                    "BasePart"
-                                ) then
-
-                                    part =
-                                        prompt.Parent
-
-                                else
-
-                                    part =
-                                        prompt.Parent
-                                        :FindFirstChildWhichIsA(
-                                            "BasePart"
-                                        )
-                                end
-
-                                if hrp and part then
-
-                                    StatusLabel.Text =
-                                        "Joining Portal..."
-
-                                    StatusLabel.TextColor3 =
-                                        Color3.fromRGB(
-                                            100,
-                                            255,
-                                            255
-                                        )
-
-                                    hrp.CFrame =
-                                        part.CFrame
-                                        * CFrame.new(
-                                            0,
-                                            0,
-                                            -2
-                                        )
-
+                                    hrp.CFrame = parentPart.CFrame * CFrame.new(0, 0, -2)
                                     task.wait(0.1)
 
                                     if fireproximityprompt then
-                                        fireproximityprompt(
-                                            prompt
-                                        )
+                                        fireproximityprompt(prompt)
                                     end
 
-                                    local touch =
-                                        part:FindFirstChildOfClass(
-                                            "TouchTransmitter"
-                                        )
-                                        or
-                                        part:FindFirstChild(
-                                            "TouchInterest"
-                                        )
-
-                                    if touch
-                                        and firetouchinterest
-                                    then
-
-                                        firetouchinterest(
-                                            hrp,
-                                            part,
-                                            0
-                                        )
-
+                                    local touch = parentPart:FindFirstChildOfClass("TouchTransmitter") or parentPart:FindFirstChild("TouchInterest")
+                                    if touch then
+                                        firetouchinterest(hrp, parentPart, 0)
                                         task.wait(0.1)
-
-                                        firetouchinterest(
-                                            hrp,
-                                            part,
-                                            1
-                                        )
+                                        firetouchinterest(hrp, parentPart, 1)
                                     end
 
                                     task.wait(3)
@@ -1859,196 +493,51 @@ local function autoJoinLoop()
                         end
                     end
                 end)
-
                 task.wait(0.5)
             end
         end
 
-        StatusLabel.Text =
-            "Status: Idle"
-
-        StatusLabel.TextColor3 =
-            Color3.fromRGB(150, 150, 150)
+        StatusLabel.Text = "Status: Idle"
+        StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
     end)
 end
 
 -- ==========================================
--- 🔘 TOGGLE AUTO PORTAL
+-- 🔘 การควบคุมปุ่มกด
 -- ==========================================
-
 PortalBtn.MouseButton1Click:Connect(function()
-
-    _G.AutoPortal =
-        not _G.AutoPortal
-
+    _G.AutoPortal = not _G.AutoPortal
     if _G.AutoPortal then
-
-        PortalBtn.Text =
-            "🟢 Auto Portal: ON"
-
-        TweenService:Create(
-            PortalBtn,
-            TweenInfo.new(0.2),
-            {
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        65,
-                        200,
-                        100
-                    )
-            }
-        ):Play()
-
+        PortalBtn.Text = "🟢 Auto Portal: ON"
+        TweenService:Create(PortalBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(65, 200, 100)}):Play()
         autoPortalLoop()
-
     else
-
-        -- Invalida qualquer loop antigo imediatamente.
-        AutoPortalRunId = AutoPortalRunId + 1
-        AutoPortalBusy = false
-
-        PortalBtn.Text =
-            "🔴 Auto Portal: OFF"
-
-        TweenService:Create(
-            PortalBtn,
-            TweenInfo.new(0.2),
-            {
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        255,
-                        75,
-                        75
-                    )
-            }
-        ):Play()
+        PortalBtn.Text = "🔴 Auto Portal: OFF"
+        TweenService:Create(PortalBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 75, 75)}):Play()
     end
 end)
-
--- ==========================================
--- 🔘 TOGGLE AUTO PLACE
--- ==========================================
 
 PlaceBtn.MouseButton1Click:Connect(function()
-
-    _G.AutoPlace =
-        not _G.AutoPlace
-
+    _G.AutoPlace = not _G.AutoPlace
     if _G.AutoPlace then
-
-        PlaceBtn.Text =
-            "🟢 Auto Place: ON"
-
-        TweenService:Create(
-            PlaceBtn,
-            TweenInfo.new(0.2),
-            {
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        65,
-                        200,
-                        100
-                    )
-            }
-        ):Play()
-
+        PlaceBtn.Text = "🟢 Auto Place: ON"
+        TweenService:Create(PlaceBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(65, 200, 100)}):Play()
     else
-
-        PlaceBtn.Text =
-            "🔴 Auto Place: OFF"
-
-        TweenService:Create(
-            PlaceBtn,
-            TweenInfo.new(0.2),
-            {
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        255,
-                        75,
-                        75
-                    )
-            }
-        ):Play()
+        PlaceBtn.Text = "🔴 Auto Place: OFF"
+        TweenService:Create(PlaceBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 75, 75)}):Play()
     end
 end)
-
--- ==========================================
--- 🔘 TOGGLE AUTO JOIN
--- ==========================================
 
 JoinBtn.MouseButton1Click:Connect(function()
-
-    _G.AutoJoin =
-        not _G.AutoJoin
-
+    _G.AutoJoin = not _G.AutoJoin
     if _G.AutoJoin then
-
-        JoinBtn.Text =
-            "🟢 Auto Join: ON"
-
-        TweenService:Create(
-            JoinBtn,
-            TweenInfo.new(0.2),
-            {
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        65,
-                        200,
-                        100
-                    )
-            }
-        ):Play()
-
+        JoinBtn.Text = "🟢 Auto Join: ON"
+        TweenService:Create(JoinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(65, 200, 100)}):Play()
         autoJoinLoop()
-
     else
-
-        JoinBtn.Text =
-            "🔴 Auto Join: OFF"
-
-        TweenService:Create(
-            JoinBtn,
-            TweenInfo.new(0.2),
-            {
-                BackgroundColor3 =
-                    Color3.fromRGB(
-                        255,
-                        75,
-                        75
-                    )
-            }
-        ):Play()
+        JoinBtn.Text = "🔴 Auto Join: OFF"
+        TweenService:Create(JoinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 75, 75)}):Play()
     end
 end)
 
--- ==========================================
--- ✅ INIT
--- ==========================================
-
-print(
-    "✅ Auto Portal Hub V.30"
-)
-
-print(
-    "   • Debuffs predefined: DARK/FIRE/NATURE/ROSE/LIGHT/STORM/WIND/WATER"
-)
-
-print(
-    "   • All sliders start at 80%"
-)
-
-print(
-    "   • No inventory scan required"
-)
-
-print(
-    "   • Slider limits enforced"
-)
-
-print(
-    "   • No valid portal = retry"
-)
-
-print(
-    "   • Positive buffs ignored"
-)
+print("✅ โหลด Auto Portal Hub V.29 สำเร็จ! (รองรับ Auto Place/Equip Best สำหรับไอดีรอง Auto Join)")

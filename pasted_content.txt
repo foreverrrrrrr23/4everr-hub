@@ -7,13 +7,14 @@ local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local rs = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
+
+local activateRemote = rs:WaitForChild("Remotes"):WaitForChild("Inventory"):WaitForChild("ActivateCoopPortal")
+
 player.Idled:Connect(function()
     VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
     task.wait(1)
     VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
 end)
-
-local activateRemote = rs:WaitForChild("Remotes"):WaitForChild("Inventory"):WaitForChild("ActivateCoopPortal")
 
 if CoreGui:FindFirstChild("AutoPortalHub") then
     CoreGui.AutoPortalHub:Destroy()

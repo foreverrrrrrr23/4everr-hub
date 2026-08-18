@@ -10,7 +10,17 @@ local HttpService = game:GetService("HttpService")
 local rs = game:GetService("ReplicatedStorage")
 local workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
+-- ==========================================
+-- ANTI-AFK
+-- ==========================================
 
+local vu = game:GetService("VirtualUser")
+
+player.Idled:Connect(function()
+    vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    task.wait(1)
+    vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+end)
 -- 🧹 กวาดลบ UI เก่า
 for _, gui in pairs(CoreGui:GetChildren()) do
     if string.find(gui.Name, "AutoPortalHub") then

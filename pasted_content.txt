@@ -81,7 +81,7 @@ player.Idled:Connect(function()
     if _G.AntiAFK then VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end
 end)
 
-local maxAllowedWindDebuff = 60 
+local maxAllowedDarkDebuff = 60 
 local allPortals = {"S-Rank Portal", "A-Rank Portal", "B-Rank Portal", "C-Rank Portal", "D-Rank Portal", "E-Rank Portal"}
 local selectedRankIndex = 2
 
@@ -371,8 +371,8 @@ end
 -- ==========================================
 -- 🌀 ระบบหาห้อง Portal 
 -- ==========================================
-local function checkNegativeWindDebuff()
-    local windValue = 0
+local function checkNegativeDarkDebuff()
+    local DarkValue = 0
     pcall(function()
         local hover = player.PlayerGui:FindFirstChild("HoverPortalClick")
         if hover then
@@ -380,19 +380,19 @@ local function checkNegativeWindDebuff()
             if elem then
                 local scroll = elem:FindFirstChild("ScrollingFrame")
                 if scroll then
-                    local negWind = scroll:FindFirstChild("Negative_Wind")
-                    if negWind then
-                        local numLabel = negWind:FindFirstChild("Number")
+                    local negDark = scroll:FindFirstChild("Negative_Dark")
+                    if negDark then
+                        local numLabel = negDark:FindFirstChild("Number")
                         if numLabel and numLabel:IsA("TextLabel") then
                             local extractedNum = string.match(numLabel.Text, "%d+")
-                            if extractedNum then windValue = tonumber(extractedNum) or 0 end
+                            if extractedNum then DarkValue = tonumber(extractedNum) or 0 end
                         end
                     end
                 end
             end
         end
     end)
-    return windValue
+    return DarkValue
 end
 
 local function getBestPortalUUID()
@@ -411,12 +411,12 @@ local function getBestPortalUUID()
                                 for _, v in pairs(val) do if v == pName then isMatch = true; break end end
 
                                 if isMatch then
-                                    local windDebuff = val.Negative_Wind or val.WindDebuff or 0
-                                    if type(windDebuff) == "string" then windDebuff = tonumber(string.match(windDebuff, "%d+")) or 0 end
+                                    local DarkDebuff = val.Negative_Dark or val.DarkDebuff or 0
+                                    if type(DarkDebuff) == "string" then DarkDebuff = tonumber(string.match(DarkDebuff, "%d+")) or 0 end
                                     local uuid = nil
                                     if type(key) == "string" and #key >= 30 and string.find(key, "-") then uuid = key end
                                     for _, v in pairs(val) do if type(v) == "string" and #v >= 30 and string.find(v, "-") then uuid = v; break end end
-                                    if uuid then table.insert(candidateUUIDs, {uuid = uuid, wind = windDebuff}) end
+                                    if uuid then table.insert(candidateUUIDs, {uuid = uuid, Dark = DarkDebuff}) end
                                 end
                             end
                         end
@@ -425,10 +425,10 @@ local function getBestPortalUUID()
             end
         end
         for _, portalInfo in ipairs(candidateUUIDs) do
-            local uiWind = checkNegativeWindDebuff()
-            local finalWind = math.max(portalInfo.wind, uiWind)
-            if finalWind < maxAllowedWindDebuff then
-                return portalInfo.uuid, pName, finalWind
+            local uiDark = checkNegativeDarkDebuff()
+            local finalDark = math.max(portalInfo.Dark, uiDark)
+            if finalDark < maxAllowedDarkDebuff then
+                return portalInfo.uuid, pName, finalDark
             end
         end
     end
@@ -573,10 +573,10 @@ task.spawn(function()
                 StatusLabel.Text = "🌀 Scanning Portals..."
                 StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
                 forceLoadInventory()
-                local uuid, portalName, windDebuff = getBestPortalUUID()
+                local uuid, portalName, DarkDebuff = getBestPortalUUID()
 
                 if uuid and activateRemote then
-                    StatusLabel.Text = "🌀 Found: " .. portalName .. " (-" .. windDebuff .. "%)"
+                    StatusLabel.Text = "🌀 Found: " .. portalName .. " (-" .. DarkDebuff .. "%)"
                     StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
                     
                     pcall(function()

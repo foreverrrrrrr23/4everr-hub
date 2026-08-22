@@ -1,60 +1,111 @@
 -- ==========================================
--- 🌟 Auto Portal Hub V.104 (Raid Escape Logic)
+-- 🌟 Auto Portal Hub V.111 - Fluent UI
+-- Raid Escape Logic + Tier Card Priority + Save Config
 -- ==========================================
-local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local VirtualUser = game:GetService("VirtualUser")
+
+-- ==========================================
+-- SERVICES
+-- ==========================================
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local rs = game:GetService("ReplicatedStorage")
-local workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
 local player = Players.LocalPlayer
--- ==========================================
--- ANTI-AFK
--- ==========================================
+local rs = ReplicatedStorage
+local workspace = Workspace
 
-local vu = game:GetService("VirtualUser")
+local RUN_ID = tostring(os.clock()) .. "_" .. tostring(math.random(100000, 999999))
+_G.AutoPortalHubRunId = RUN_ID
 
-player.Idled:Connect(function()
-    vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-    task.wait(1)
-    vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-end)
--- 🧹 กวาดลบ UI เก่า
-for _, gui in pairs(CoreGui:GetChildren()) do
-    if string.find(gui.Name, "AutoPortalHub") then
-        gui:Destroy()
-    end
+-- ==========================================
+-- FLUENT
+-- ==========================================
+if getgenv and getgenv().AutoPortalHubFluent then
+    pcall(function()
+        getgenv().AutoPortalHubFluent:Destroy()
+    end)
 end
 
-local activateRemote = rs:WaitForChild("Remotes", 5)
-if activateRemote then activateRemote = activateRemote:FindFirstChild("Inventory")
-    if activateRemote then activateRemote = activateRemote:FindFirstChild("ActivateCoopPortal") end
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Options = Fluent.Options
+
+if getgenv then
+    getgenv().AutoPortalHubFluent = Fluent
 end
 
+local Window = Fluent:CreateWindow({
+    Title = "Auto Portal Hub V.111",
+    SubTitle = "Raid Escape Logic • Fluent UI",
+    TabWidth = 145,
+    Size = UDim2.fromOffset(610, 510),
+    Acrylic = false,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.G
+})
+
+local Tabs = {
+    Portal = Window:AddTab({ Title = "Portal", Icon = "refresh-cw" }),
+    Raid = Window:AddTab({ Title = "Raid", Icon = "swords" }),
+    Cards = Window:AddTab({ Title = "Cards", Icon = "layers" }),
+    Event = Window:AddTab({ Title = "Event", Icon = "flame" }),
+    Other = Window:AddTab({ Title = "Other", Icon = "sliders-horizontal" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
 -- ==========================================
--- 🌟 ตัวแปรการตั้งค่าทั้งหมด
+-- FILES / FOLDERS
 -- ==========================================
 local folderName = "AutoPortal_Presets"
-if isfolder and makefolder and not isfolder(folderName) then makefolder(folderName) end
+local presetFile = folderName .. "/presets.json"
+local cardConfigFile = folderName .. "/card_priority.json"
+local settingsFolder = "AutoPortal_Settings"
+local profileFile = settingsFolder .. "/profiles.json"
 
+if isfolder and makefolder and not isfolder(folderName) then
+    makefolder(folderName)
+end
+if isfolder and makefolder and not isfolder(settingsFolder) then
+    makefolder(settingsFolder)
+end
+
+-- ==========================================
+-- GLOBAL SETTINGS
+-- V2 behavior + existing card priority system
+-- ==========================================
 _G.IsRecording = false
 _G.CurrentTeam = "Team1"
 _G.TeamsData = { Team1 = {}, Team2 = {}, Team3 = {} }
-_G.PlaceModePortal = "EquipBest"
-_G.AutoPortal = false; _G.AutoPlacePortal = false; _G.AutoJoin = false
-_G.StartDelay = 3; _G.SelectedPortalTeam = 1
 
-_G.PlaceModeEvent = "TeamLoadout";  _G.AutoPlaceEvent = false;  _G.SelectedEventTeam = 1 
-_G.PlaceModeRaid = "TeamLoadout";   _G.AutoPlaceRaid = false;   _G.SelectedRaidTeam = 1 
+_G.PlaceModePortal = "TeamLoadout"
+_G.AutoPortal = false
+_G.AutoPlacePortal = false
+_G.AutoJoin = false
+_G.StartDelay = 3
+_G.PlaceDelayPortal = 0
+_G.SelectedPortalTeam = 1
+_G.SelectedRankIndex = 1
+
+_G.PlaceModeEvent = "TeamLoadout"
+_G.AutoEventHost = false
+_G.AutoEventGuest = false
+_G.InviteTargetName = ""
+_G.AutoPlaceEvent = false
+_G.SelectedEventTeam = 1
+_G.PlaceDelayEvent = 2
+
+_G.PlaceModeRaid = "TeamLoadout"
+_G.AutoRaid = false
+_G.AutoPlaceRaid = false
+_G.SelectedRaidTeam = 1
+_G.PlaceDelayRaid = 10
 
 _G.EventDiffs = {"Easy", "Medium", "Hard", "VeryHard", "Extreme", "Nightmare"}
-_G.EventDiffIndex = 6 
+_G.EventDiffIndex = 6
 _G.RaidDiffs = {"Easy", "Medium", "Hard", "Extreme"}
-_G.RaidDiffIndex = 4 
+_G.RaidDiffIndex = 4
 
--- 🌍 ระบบเลือกรังหลบภัย (Escape Maps) สำหรับตอนอยู่ Raid แล้ว Event เปิด
 _G.EscapeMaps = {
     { name = "Capsule Corp", value = "CapsuleCorp" },
     { name = "Nomek", value = "Nomek" },
@@ -70,242 +121,1400 @@ _G.EscapeMaps = {
     { name = "Eisenbern Castle", value = "EisenbernCastle" },
     { name = "Vahrwelt", value = "Vahrwelt" }
 }
-_G.EscapeMapIndex = 1 -- ค่าเริ่มต้นคือ Capsule Corp
+_G.EscapeMapIndex = 1
 
-_G.CardSelectDelay = 2; _G.AutoSelectCard = false
-_G.AutoEvent = false; _G.AutoRaid = false; _G.AntiAFK = true 
-_G.RaidSequenceDone = false 
+_G.CardSelectDelay = 3
+_G.AutoSelectCard = false
+_G.AntiAFK = true
+_G.RaidSequenceDone = false
 
--- 🛡️ Anti-AFK
-player.Idled:Connect(function()
-    if _G.AntiAFK then VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end
-end)
+local maxAllowedWindDebuff = 60
+local allPortals = {
+    "S-Rank Portal",
+    "A-Rank Portal",
+    "B-Rank Portal",
+    "C-Rank Portal",
+    "D-Rank Portal",
+    "E-Rank Portal"
+}
 
-local maxAllowedDarkDebuff = 60 
-local allPortals = {"S-Rank Portal", "A-Rank Portal", "B-Rank Portal", "C-Rank Portal", "D-Rank Portal", "E-Rank Portal"}
-local selectedRankIndex = 2
+-- ==========================================
+-- DEFAULT CARD PRIORITY
+-- Exact order from card_priority.json supplied by user
+-- ==========================================
+local DEFAULT_CARD_PRIORITY = {
+    "Tower Attack Speed III",
+    "Tower Damage III",
+    "Boss Slayer III",
+    "Tower Attack Speed II",
+    "Tower Damage II",
+    "Tower Range III",
+    "Boss Slayer II",
+    "Tower Range II",
+    "Lucky Break",
+    "Copy Blessing",
+    "Tower Range I",
+    "Tower Damage I",
+    "Tower Attack Speed I",
+    "Boss Slayer I",
+    "One Life",
+    "Enemy Shield I",
+    "Enemy Speed I",
+    "Enemy Regen I",
+    "Enemy HP I",
+    "Boss Shield I",
+    "Boss HP I",
+    "Enemy Shield II",
+    "Boss Shield II",
+    "Control Resistance I",
+    "Curse Overflow I",
+    "Curse Overflow II",
+    "Enemy Regen II",
+    "Enemy HP II",
+    "Enemy Speed II",
+    "Control Resistance II",
+    "Double or Nothing",
+    "Enemy Shield III",
+    "Cursed Copy",
+    "Enemy Speed III",
+    "Enemy Regen III",
+    "Enemy HP III",
+    "Boss Shield III",
+    "Control Resistance III",
+    "Boss HP II",
+    "Cursed Jackpot",
+    "Final Boss Trial I",
+    "Domain Expansion I",
+    "Boss HP III",
+    "Heavenly Trial",
+    "Domain Expansion II",
+    "Final Boss Trial II",
+    "King's Challenge",
+    "Final Nightmare I",
+    "Sealed Potential",
+    "Final Nightmare II",
+    "Final Boss Trial III"
+}
 
--- 💾 ระบบ Load/Save Preset
-local function loadPresetsFromFile()
-    if readfile and isfile and isfile(folderName .. "/presets.json") then
-        pcall(function() _G.TeamsData = HttpService:JSONDecode(readfile(folderName .. "/presets.json")) end)
+local function copyArray(source)
+    local result = {}
+    for i, value in ipairs(source) do
+        result[i] = value
+    end
+    return result
+end
+
+_G.CardPriority = copyArray(DEFAULT_CARD_PRIORITY)
+
+-- ==========================================
+-- STATUS
+-- ==========================================
+local StatusParagraph = nil
+local lastStatusText = "Idle"
+
+local function setStatus(text)
+    lastStatusText = tostring(text or "")
+    if StatusParagraph and StatusParagraph.SetDesc then
+        pcall(function()
+            StatusParagraph:SetDesc(lastStatusText)
+        end)
     end
 end
-loadPresetsFromFile()
+
+-- ==========================================
+-- ANTI-AFK
+-- ==========================================
+player.Idled:Connect(function()
+    if _G.AutoPortalHubRunId ~= RUN_ID then return end
+    if not _G.AntiAFK then return end
+
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+
+    pcall(function()
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end)
+end)
+
+-- ==========================================
+-- REMOTES
+-- ==========================================
+local activateRemote = rs:WaitForChild("Remotes", 5)
+if activateRemote then
+    activateRemote = activateRemote:FindFirstChild("Inventory")
+    if activateRemote then
+        activateRemote = activateRemote:FindFirstChild("ActivateCoopPortal")
+    end
+end
+
+-- ==========================================
+-- PRESET LOAD / SAVE
+-- ==========================================
+local function loadPresetsFromFile()
+    if readfile and isfile and isfile(presetFile) then
+        pcall(function()
+            local decoded = HttpService:JSONDecode(readfile(presetFile))
+            if type(decoded) == "table" then
+                _G.TeamsData = decoded
+            end
+        end)
+    end
+end
 
 local function savePresetsToFile()
-    if writefile then pcall(function() writefile(folderName .. "/presets.json", HttpService:JSONEncode(_G.TeamsData)) end) end
-end
-
-local rawNamecall
-rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-    local method = getnamecallmethod()
-    if _G.IsRecording and (method == "FireServer" or method == "InvokeServer") and self.Name == "PlaceTower" then
-        table.insert(_G.TeamsData[_G.CurrentTeam], {...})
+    if writefile then
+        pcall(function()
+            writefile(presetFile, HttpService:JSONEncode(_G.TeamsData))
+        end)
     end
-    return rawNamecall(self, ...)
-end))
-
--- ==========================================
--- 🎨 สร้างหน้าต่าง GUI
--- ==========================================
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoPortalHub_MainUI" 
-ScreenGui.Parent = CoreGui
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-local fullSize = UDim2.new(0, 520, 0, 320)
-local minSize = UDim2.new(0, 520, 0, 36)
-local isMinimized = false
-
-local MainFrame = Instance.new("Frame")
-MainFrame.Parent = ScreenGui; MainFrame.Size = fullSize; MainFrame.Position = UDim2.new(0.5, -260, 0.3, -160)
-MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24); MainFrame.BorderSizePixel = 0; MainFrame.Active = true; MainFrame.Draggable = true; MainFrame.ClipsDescendants = true
-local MainCorner = Instance.new("UICorner"); MainCorner.CornerRadius = UDim.new(0, 8); MainCorner.Parent = MainFrame
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.G then MainFrame.Visible = not MainFrame.Visible end
-end)
-
-local TopBar = Instance.new("Frame")
-TopBar.Parent = MainFrame; TopBar.Size = UDim2.new(1, 0, 0, 36); TopBar.BackgroundColor3 = Color3.fromRGB(12, 12, 16); TopBar.BorderSizePixel = 0
-
-local Title = Instance.new("TextLabel")
-Title.Parent = TopBar; Title.Size = UDim2.new(1, -50, 1, 0); Title.Position = UDim2.new(0, 14, 0, 0); Title.BackgroundTransparency = 1
-Title.Text = "🌀 Auto Hub V.104 (Raid Escape Logic)  •  [Press 'G' to Hide]"; Title.TextColor3 = Color3.fromRGB(240, 240, 250); Title.TextSize = 12; Title.Font = Enum.Font.GothamBold; Title.TextXAlignment = Enum.TextXAlignment.Left
-
-local MinBtn = Instance.new("TextButton")
-MinBtn.Parent = TopBar; MinBtn.AnchorPoint = Vector2.new(1, 0.5); MinBtn.Size = UDim2.new(0, 28, 0, 24); MinBtn.Position = UDim2.new(1, -8, 0.5, 0)
-MinBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45); MinBtn.Text = "–"; MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255); MinBtn.Font = Enum.Font.GothamBold; MinBtn.TextSize = 14
-local MinCorner = Instance.new("UICorner"); MinCorner.CornerRadius = UDim.new(0, 6); MinCorner.Parent = MinBtn
-
-local Sidebar = Instance.new("Frame")
-Sidebar.Parent = MainFrame; Sidebar.Size = UDim2.new(0, 135, 1, -36); Sidebar.Position = UDim2.new(0, 0, 0, 36); Sidebar.BackgroundColor3 = Color3.fromRGB(14, 14, 18); Sidebar.BorderSizePixel = 0
-local SidebarList = Instance.new("UIListLayout"); SidebarList.Parent = Sidebar; SidebarList.SortOrder = Enum.SortOrder.LayoutOrder; SidebarList.Padding = UDim.new(0, 5)
-
-local Container = Instance.new("Frame")
-Container.Parent = MainFrame; Container.Size = UDim2.new(1, -135, 1, -62); Container.Position = UDim2.new(0, 135, 0, 36); Container.BackgroundTransparency = 1
-
-local Footer = Instance.new("Frame")
-Footer.Parent = MainFrame; Footer.Size = UDim2.new(1, -135, 0, 26); Footer.Position = UDim2.new(0, 135, 1, -26); Footer.BackgroundColor3 = Color3.fromRGB(12, 12, 16); Footer.BorderSizePixel = 0
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Parent = Footer; StatusLabel.Size = UDim2.new(1, -20, 1, 0); StatusLabel.Position = UDim2.new(0, 12, 0, 0); StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Status: Idle"; StatusLabel.TextColor3 = Color3.fromRGB(140, 140, 150); StatusLabel.TextSize = 11; StatusLabel.Font = Enum.Font.GothamSemibold; StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-MinBtn.MouseButton1Click:Connect(function()
-    isMinimized = not isMinimized
-    local targetSize = isMinimized and minSize or fullSize
-    MinBtn.Text = isMinimized and "+" or "–"
-    TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = targetSize}):Play()
-end)
-
-local pages = {}
-local function createPage(name)
-    local page = Instance.new("ScrollingFrame")
-    page.Name = name .. "Page"; page.Parent = Container; page.Size = UDim2.new(1, 0, 1, 0); page.BackgroundTransparency = 1; page.BorderSizePixel = 0; page.ScrollBarThickness = 3; page.Visible = false
-    local list = Instance.new("UIListLayout"); list.Parent = page; list.SortOrder = Enum.SortOrder.LayoutOrder; list.Padding = UDim.new(0, 6)
-    pages[name] = page
-    return page
 end
 
-local portalPage = createPage("Portal")
-local raidPage = createPage("Raid")
-local eventPage = createPage("Event") 
+loadPresetsFromFile()
 
-local tabButtons = {}
-local function selectTab(tabName)
-    for name, page in pairs(pages) do page.Visible = (name == tabName) end
-    for name, btn in pairs(tabButtons) do
-        if name == tabName then
-            btn.BackgroundColor3 = Color3.fromRGB(40, 80, 150); btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        else
-            btn.BackgroundColor3 = Color3.fromRGB(22, 22, 28); btn.TextColor3 = Color3.fromRGB(140, 140, 150)
+-- ==========================================
+-- RAID MODIFIER CONFIG
+-- ==========================================
+local RaidModifierConfig = nil
+pcall(function()
+    RaidModifierConfig = require(
+        rs:WaitForChild("Modules")
+          :WaitForChild("RaidModifierConfig")
+    )
+end)
+
+-- ==========================================
+-- SMART SCORE FALLBACK
+-- Kept to preserve old behavior when no manual priority matches
+-- ==========================================
+local cardDatabase = {
+    ["Tower Attack Speed"] = { base = 95, isBuff = true },
+    ["Tower Damage"] = { base = 95, isBuff = true },
+    ["Tower Range"] = { base = 90, isBuff = true },
+    ["Boss Slayer"] = { base = 85, isBuff = true },
+    ["Lucky Break"] = { base = 80, isBuff = true },
+    ["Copy Blessing"] = { base = 80, isBuff = true },
+    ["One Life"] = { base = 75, isBuff = true },
+    ["Double or Nothing"] = { base = 65, isBuff = true },
+    ["Enemy Speed"] = { base = 50, isBuff = false },
+    ["Enemy HP"] = { base = 45, isBuff = false },
+    ["Enemy Shield"] = { base = 45, isBuff = false },
+    ["Boss Shield"] = { base = 45, isBuff = false },
+    ["Enemy Regen"] = { base = 40, isBuff = false },
+    ["Boss HP"] = { base = 35, isBuff = false },
+    ["Final Boss Trial"] = { base = 30, isBuff = false },
+    ["Cursed Copy"] = { base = 25, isBuff = false },
+    ["Heavenly Trial"] = { base = 18, isBuff = false },
+    ["Control Resistance"] = { base = 15, isBuff = false },
+    ["Domain Expansion"] = { base = 10, isBuff = false },
+    ["King's Challenge"] = { base = 10, isBuff = false },
+    ["Cursed Jackpot"] = { base = 10, isBuff = false },
+    ["Final Nightmare"] = { base = 5, isBuff = false },
+    ["Curse Overflow"] = { base = -100, isBuff = false },
+    ["Sealed Potential"] = { base = -999, isBuff = false }
+}
+
+local function calculateSmartScore(titleText)
+    local rawText = tostring(titleText or ""):gsub("<[^>]->", "")
+    local tier = 1
+
+    if rawText:match("%sIII$") then
+        tier = 3
+    elseif rawText:match("%sII$") then
+        tier = 2
+    elseif rawText:match("%sI$") then
+        tier = 1
+    end
+
+    local baseName = rawText:gsub("%s+[IVX]+$", "")
+    local info = cardDatabase[baseName]
+    if not info then return 0 end
+
+    if info.isBuff then
+        return info.base + ((tier - 1) * 5)
+    end
+
+    if info.base > 0 then
+        return info.base - ((tier - 1) * 10)
+    end
+
+    return info.base
+end
+
+-- ==========================================
+-- ALL REAL CARD/TIER OPTIONS
+-- ==========================================
+local allCardOptions = {}
+local allCardOptionSet = {}
+local allCardOptionByKey = {}
+local romans = { [1] = "I", [2] = "II", [3] = "III" }
+
+local function cleanCardTextBasic(text)
+    text = tostring(text or "")
+    text = text:gsub("<[^>]->", "")
+    text = text:gsub("\194\160", " ") -- NBSP
+    text = text:gsub("Ⅰ", "I")
+    text = text:gsub("Ⅱ", "II")
+    text = text:gsub("Ⅲ", "III")
+    text = text:gsub("^%s+", "")
+    text = text:gsub("%s+$", "")
+    text = text:gsub("%s+", " ")
+    return text
+end
+
+local function cardKey(text)
+    local cleaned = string.lower(cleanCardTextBasic(text))
+    -- Ignore punctuation/spacing when comparing GUI titles to config names.
+    return cleaned:gsub("[^%w]", "")
+end
+
+local function rebuildCardKeyMap()
+    table.clear(allCardOptionByKey)
+
+    -- Longest names win when one key is a prefix of another (I / II / III).
+    local ordered = {}
+    for _, name in ipairs(allCardOptions) do
+        table.insert(ordered, name)
+    end
+
+    table.sort(ordered, function(a, b)
+        return #cardKey(a) > #cardKey(b)
+    end)
+
+    for _, name in ipairs(ordered) do
+        allCardOptionByKey[cardKey(name)] = name
+    end
+end
+
+local function addCardOption(name)
+    name = cleanCardTextBasic(name)
+
+    if type(name) ~= "string" or name == "" or allCardOptionSet[name] then
+        return
+    end
+
+    allCardOptionSet[name] = true
+    table.insert(allCardOptions, name)
+end
+
+local function getTierDisplayNameSafe(card, tier)
+    local fallback = tostring(card.Name) .. " " .. (romans[tier] or tostring(tier))
+    local getter = RaidModifierConfig and RaidModifierConfig.GetTierDisplayName
+
+    if type(getter) ~= "function" then
+        return fallback
+    end
+
+    -- Most ModuleScripts expose helpers with dot syntax. V108 used ':' which
+    -- inserts self and can shift the arguments. Try dot first, then method form.
+    local attempts = {
+        function() return getter(card, tier) end,
+        function() return getter(RaidModifierConfig, card, tier) end
+    }
+
+    local baseKey = cardKey(card.Name)
+
+    for _, fn in ipairs(attempts) do
+        local ok, result = pcall(fn)
+        if ok and type(result) == "string" and result ~= "" then
+            result = cleanCardTextBasic(result)
+            local resultKey = cardKey(result)
+            if resultKey:find(baseKey, 1, true) then
+                return result
+            end
         end
     end
+
+    return fallback
 end
 
-local function addTabButton(name, iconText)
-    local btn = Instance.new("TextButton")
-    btn.Parent = Sidebar; btn.Size = UDim2.new(1, 0, 0, 32); btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
-    btn.Text = iconText .. "  " .. name; btn.TextColor3 = Color3.fromRGB(140, 140, 150); btn.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-    local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 6); corner.Parent = btn
-    btn.MouseButton1Click:Connect(function() selectTab(name) end)
-    tabButtons[name] = btn
-end
+local function buildAllCardOptions()
+    table.clear(allCardOptions)
+    table.clear(allCardOptionSet)
 
-addTabButton("Portal", "🌀")
-addTabButton("Raid", "⚔️")
-addTabButton("Event", "🎃")
-
-local function createToggleBtn(parent, text, initialVal, callback)
-    local btn = Instance.new("TextButton")
-    btn.Parent = parent; btn.Size = UDim2.new(1, 0, 0, 28); btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
-    local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 6); corner.Parent = btn
-    local state = initialVal
-    local function updateVisual()
-        if state then
-            btn.Text = "🟢 " .. text .. ": ON"; btn.BackgroundColor3 = Color3.fromRGB(35, 120, 60); btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        else
-            btn.Text = "🔴 " .. text .. ": OFF"; btn.BackgroundColor3 = Color3.fromRGB(38, 38, 46); btn.TextColor3 = Color3.fromRGB(170, 170, 180)
+    if RaidModifierConfig and type(RaidModifierConfig.Cards) == "table" then
+        for _, card in ipairs(RaidModifierConfig.Cards) do
+            if type(card) == "table" and type(card.Name) == "string" then
+                if type(card.Tiers) == "table" and #card.Tiers > 0 then
+                    for tier = 1, #card.Tiers do
+                        addCardOption(getTierDisplayNameSafe(card, tier))
+                    end
+                else
+                    addCardOption(card.Name)
+                end
+            end
         end
-    end
-    updateVisual()
-    btn.MouseButton1Click:Connect(function() state = not state updateVisual() callback(state) end)
-    return { Button = btn, Update = function(newState) state = newState updateVisual() end }
-end
-
-local function createOptionBtn(parent, text, color, callback)
-    local btn = Instance.new("TextButton")
-    btn.Parent = parent; btn.Size = UDim2.new(1, 0, 0, 28); btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
-    btn.Text = text; btn.TextColor3 = Color3.fromRGB(240, 240, 250); btn.BackgroundColor3 = color
-    local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 6); corner.Parent = btn
-    btn.MouseButton1Click:Connect(function() callback(btn) end)
-    return btn
-end
-
--- ==========================================
--- 🎛️ หมวด UI Controls
--- ==========================================
-
--- 🌀 Portal Page
-createToggleBtn(portalPage, "Auto Portal (ON/OFF)", _G.AutoPortal, function(val) _G.AutoPortal = val end)
-createToggleBtn(portalPage, "Auto Place (Portal)", _G.AutoPlacePortal, function(val) _G.AutoPlacePortal = val end)
-createToggleBtn(portalPage, "Auto Join (Alt Bot)", _G.AutoJoin, function(val) _G.AutoJoin = val if val then autoJoinLoop() end end)
-createOptionBtn(portalPage, "⚙️ Mode: Equip Best", Color3.fromRGB(80, 50, 120), function(btn)
-    if _G.PlaceModePortal == "EquipBest" then _G.PlaceModePortal = "Preset"; btn.Text = "⚙️ Mode: Preset Team"; btn.BackgroundColor3 = Color3.fromRGB(50, 100, 120)
-    else _G.PlaceModePortal = "EquipBest"; btn.Text = "⚙️ Mode: Equip Best"; btn.BackgroundColor3 = Color3.fromRGB(80, 50, 120) end
-end)
-createOptionBtn(portalPage, "🎯 Rank Priority: " .. allPortals[selectedRankIndex], Color3.fromRGB(50, 50, 70), function(btn)
-    selectedRankIndex = selectedRankIndex + 1 if selectedRankIndex > #allPortals then selectedRankIndex = 1 end
-    btn.Text = "🎯 Rank Priority: " .. allPortals[selectedRankIndex]
-end)
-local pTeamBtn = createOptionBtn(portalPage, "📁 Preset: " .. _G.CurrentTeam, Color3.fromRGB(40, 60, 90), function(btn)
-    if _G.CurrentTeam == "Team1" then _G.CurrentTeam = "Team2" elseif _G.CurrentTeam == "Team2" then _G.CurrentTeam = "Team3" else _G.CurrentTeam = "Team1" end
-    btn.Text = "📁 Preset: " .. _G.CurrentTeam .. " (" .. #(_G.TeamsData[_G.CurrentTeam] or {}) .. " towers)"
-end)
-createOptionBtn(portalPage, "🎙️ Start Record Placement", Color3.fromRGB(200, 120, 30), function(btn)
-    _G.IsRecording = not _G.IsRecording
-    if _G.IsRecording then
-        _G.TeamsData[_G.CurrentTeam] = {}; btn.Text = "⏹️ Stop & Save " .. _G.CurrentTeam; btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50); StatusLabel.Text = "Recording: Place towers now!"
     else
-        savePresetsToFile(); btn.Text = "🎙️ Start Record Placement"; btn.BackgroundColor3 = Color3.fromRGB(200, 120, 30); pTeamBtn.Text = "📁 Preset: " .. _G.CurrentTeam .. " (" .. #(_G.TeamsData[_G.CurrentTeam] or {}) .. " towers)"
+        -- Fallback built from the RaidModifierConfig you decompiled.
+        local tierCounts = {
+            ["Enemy HP"] = 3,
+            ["Enemy Shield"] = 3,
+            ["Enemy Speed"] = 3,
+            ["Enemy Regen"] = 3,
+            ["Boss HP"] = 3,
+            ["Boss Shield"] = 3,
+            ["Control Resistance"] = 3,
+            ["Final Boss Trial"] = 3,
+            ["Tower Damage"] = 3,
+            ["Tower Attack Speed"] = 3,
+            ["Tower Range"] = 3,
+            ["Boss Slayer"] = 3,
+            ["Domain Expansion"] = 2,
+            ["Curse Overflow"] = 2,
+            ["Final Nightmare"] = 2
+        }
+
+        local uniqueCards = {
+            "Lucky Break",
+            "Copy Blessing",
+            "Cursed Copy",
+            "Sealed Potential",
+            "Double or Nothing",
+            "One Life",
+            "Heavenly Trial",
+            "King's Challenge",
+            "Cursed Jackpot"
+        }
+
+        for name, tierCount in pairs(tierCounts) do
+            for tier = 1, tierCount do
+                addCardOption(name .. " " .. romans[tier])
+            end
+        end
+
+        for _, name in ipairs(uniqueCards) do
+            addCardOption(name)
+        end
     end
-end)
-createOptionBtn(portalPage, "⏳ Start Delay: " .. _G.StartDelay .. "s", Color3.fromRGB(60, 80, 100), function(btn)
-    _G.StartDelay = _G.StartDelay + 1 if _G.StartDelay > 15 then _G.StartDelay = 1 end; btn.Text = "⏳ Start Delay: " .. _G.StartDelay .. "s"
-end)
-portalPage.CanvasSize = UDim2.new(0, 0, 0, 320)
 
--- ⚔️ Raid Page
-createToggleBtn(raidPage, "Auto Raid (ON/OFF)", _G.AutoRaid, function(val) _G.AutoRaid = val end)
-createToggleBtn(raidPage, "Auto Place (Raid)", _G.AutoPlaceRaid, function(val) _G.AutoPlaceRaid = val end)
-createOptionBtn(raidPage, "⚙️ Place Mode: Team Loadout", Color3.fromRGB(60, 45, 85), function(btn)
-    if _G.PlaceModeRaid == "TeamLoadout" then _G.PlaceModeRaid = "EquipBest"; btn.Text = "⚙️ Place Mode: Equip Best"
-    else _G.PlaceModeRaid = "TeamLoadout"; btn.Text = "⚙️ Place Mode: Team Loadout" end
-end)
-createOptionBtn(raidPage, "🎒 Select Team (Raid): " .. _G.SelectedRaidTeam, Color3.fromRGB(35, 65, 75), function(btn)
-    _G.SelectedRaidTeam = _G.SelectedRaidTeam + 1 if _G.SelectedRaidTeam > 6 then _G.SelectedRaidTeam = 1 end
-    btn.Text = "🎒 Select Team (Raid): " .. _G.SelectedRaidTeam
-end)
-createOptionBtn(raidPage, "🔥 Difficulty: " .. _G.RaidDiffs[_G.RaidDiffIndex], Color3.fromRGB(100, 40, 40), function(btn)
-    _G.RaidDiffIndex = _G.RaidDiffIndex + 1
-    if _G.RaidDiffIndex > #_G.RaidDiffs then _G.RaidDiffIndex = 1 end
-    btn.Text = "🔥 Difficulty: " .. _G.RaidDiffs[_G.RaidDiffIndex]
-end)
--- 🌍 ย้ายปุ่มเลือกรังหลบภัยมาไว้ที่ Raid!
-createOptionBtn(raidPage, "🌍 Escape to: " .. _G.EscapeMaps[_G.EscapeMapIndex].name, Color3.fromRGB(40, 80, 100), function(btn)
-    _G.EscapeMapIndex = _G.EscapeMapIndex + 1
-    if _G.EscapeMapIndex > #_G.EscapeMaps then _G.EscapeMapIndex = 1 end
-    btn.Text = "🌍 Escape to: " .. _G.EscapeMaps[_G.EscapeMapIndex].name
-end)
-createToggleBtn(raidPage, "Auto Select Best Card", _G.AutoSelectCard, function(val) _G.AutoSelectCard = val end)
-raidPage.CanvasSize = UDim2.new(0, 0, 0, 300)
+    -- Your supplied 51-entry config is the canonical default. Keep every
+    -- default entry available even if the live ModuleScript helper changes.
+    for _, name in ipairs(DEFAULT_CARD_PRIORITY) do
+        addCardOption(name)
+    end
 
--- 🎃 Event Page
-createToggleBtn(eventPage, "Auto Event (ON/OFF)", _G.AutoEvent, function(val) _G.AutoEvent = val end)
-createToggleBtn(eventPage, "Auto Place (Event)", _G.AutoPlaceEvent, function(val) _G.AutoPlaceEvent = val end)
-createOptionBtn(eventPage, "⚙️ Place Mode: Team Loadout", Color3.fromRGB(60, 45, 85), function(btn)
-    if _G.PlaceModeEvent == "TeamLoadout" then _G.PlaceModeEvent = "EquipBest"; btn.Text = "⚙️ Place Mode: Equip Best"
-    else _G.PlaceModeEvent = "TeamLoadout"; btn.Text = "⚙️ Place Mode: Team Loadout" end
-end)
-createOptionBtn(eventPage, "🎒 Select Team (Event): " .. _G.SelectedEventTeam, Color3.fromRGB(35, 65, 75), function(btn)
-    _G.SelectedEventTeam = _G.SelectedEventTeam + 1 if _G.SelectedEventTeam > 6 then _G.SelectedEventTeam = 1 end
-    btn.Text = "🎒 Select Team (Event): " .. _G.SelectedEventTeam
-end)
-createOptionBtn(eventPage, "🔥 Difficulty: " .. _G.EventDiffs[_G.EventDiffIndex], Color3.fromRGB(100, 40, 40), function(btn)
-    _G.EventDiffIndex = _G.EventDiffIndex + 1
-    if _G.EventDiffIndex > #_G.EventDiffs then _G.EventDiffIndex = 1 end
-    btn.Text = "🔥 Difficulty: " .. _G.EventDiffs[_G.EventDiffIndex]
-end)
-eventPage.CanvasSize = UDim2.new(0, 0, 0, 220)
+    table.sort(allCardOptions, function(a, b)
+        local baseA = a:gsub("%s+[IVX]+$", "")
+        local baseB = b:gsub("%s+[IVX]+$", "")
 
-selectTab("Raid")
+        if baseA ~= baseB then
+            return baseA < baseB
+        end
+
+        local tierValues = { I = 1, II = 2, III = 3 }
+        local aTier = tierValues[a:match("([IVX]+)$")] or 0
+        local bTier = tierValues[b:match("([IVX]+)$")] or 0
+        return aTier < bTier
+    end)
+
+    rebuildCardKeyMap()
+end
+
+local function resolveCardOptionName(rawText)
+    local cleaned = cleanCardTextBasic(rawText)
+    local key = cardKey(cleaned)
+
+    if key == "" then
+        return nil
+    end
+
+    local exact = allCardOptionByKey[key]
+    if exact then
+        return exact
+    end
+
+    -- Some UIs add extra text around the title. Match the longest known card
+    -- name contained in the label instead of rejecting the card completely.
+    local bestName = nil
+    local bestLen = 0
+
+    for knownKey, knownName in pairs(allCardOptionByKey) do
+        if #knownKey > bestLen and key:find(knownKey, 1, true) then
+            bestName = knownName
+            bestLen = #knownKey
+        end
+    end
+
+    return bestName
+end
+
+buildAllCardOptions()
 
 -- ==========================================
--- 🛠️ ฟังก์ชัน AI ตรวจสอบสถานะ
+-- CARD PRIORITY HELPERS
+-- ==========================================
+local function getCardPriority(cardName)
+    for i, name in ipairs(_G.CardPriority) do
+        if name == cardName then
+            return i
+        end
+    end
+    return nil
+end
+
+local function sanitizePriority(list)
+    local result = {}
+    local seen = {}
+
+    for _, name in ipairs(list or {}) do
+        if type(name) == "string"
+            and allCardOptionSet[name]
+            and not seen[name] then
+
+            seen[name] = true
+            table.insert(result, name)
+        end
+    end
+
+    return result
+end
+
+_G.CardPrioritySource = "default"
+
+local function loadCardConfig()
+    if readfile and isfile and isfile(cardConfigFile) then
+        local loaded = false
+
+        local ok = pcall(function()
+            local decoded = HttpService:JSONDecode(readfile(cardConfigFile))
+            local priority = decoded.Priority or decoded.CardPriority or decoded
+
+            if type(priority) == "table" then
+                local cleaned = sanitizePriority(priority)
+
+                -- Empty is valid only when the saved list itself is empty.
+                -- If names became invalid, keep the embedded default instead.
+                if #priority == 0 or #cleaned > 0 then
+                    _G.CardPriority = cleaned
+                    _G.CardPrioritySource = "saved"
+                    loaded = true
+                end
+            end
+        end)
+
+        return ok and loaded
+    end
+
+    return false
+end
+
+local function saveCardConfig()
+    if not writefile then return false end
+
+    return pcall(function()
+        writefile(cardConfigFile, HttpService:JSONEncode({
+            SavedAt = os.time(),
+            Priority = _G.CardPriority
+        }))
+    end)
+end
+
+local function resetCardPriorityDefault()
+    _G.CardPriority = sanitizePriority(DEFAULT_CARD_PRIORITY)
+end
+
+loadCardConfig()
+
+-- ==========================================
+-- V2 PROFILE SETTINGS
+-- ==========================================
+_G.CurrentProfile = "Profile 1"
+_G.AllProfiles = {
+    ["Profile 1"] = {},
+    ["Profile 2"] = {},
+    ["Profile 3"] = {}
+}
+
+local function getProfileSnapshot()
+    return {
+        AutoPortal = _G.AutoPortal,
+        AutoPlacePortal = _G.AutoPlacePortal,
+        AutoJoin = _G.AutoJoin,
+        PlaceModePortal = _G.PlaceModePortal,
+        SelectedPortalTeam = _G.SelectedPortalTeam,
+        SelectedRankIndex = _G.SelectedRankIndex,
+        StartDelay = _G.StartDelay,
+        PlaceDelayPortal = _G.PlaceDelayPortal,
+
+        AutoRaid = _G.AutoRaid,
+        AutoPlaceRaid = _G.AutoPlaceRaid,
+        PlaceModeRaid = _G.PlaceModeRaid,
+        SelectedRaidTeam = _G.SelectedRaidTeam,
+        RaidDiffIndex = _G.RaidDiffIndex,
+        EscapeMapIndex = _G.EscapeMapIndex,
+        PlaceDelayRaid = _G.PlaceDelayRaid,
+
+        AutoSelectCard = _G.AutoSelectCard,
+        CardSelectDelay = _G.CardSelectDelay,
+
+        AutoEventHost = _G.AutoEventHost,
+        AutoEventGuest = _G.AutoEventGuest,
+        InviteTargetName = _G.InviteTargetName,
+        AutoPlaceEvent = _G.AutoPlaceEvent,
+        PlaceModeEvent = _G.PlaceModeEvent,
+        SelectedEventTeam = _G.SelectedEventTeam,
+        EventDiffIndex = _G.EventDiffIndex,
+        PlaceDelayEvent = _G.PlaceDelayEvent
+    }
+end
+
+local function saveProfiles()
+    if not writefile then return false end
+    _G.AllProfiles[_G.CurrentProfile] = getProfileSnapshot()
+    return pcall(function()
+        writefile(profileFile, HttpService:JSONEncode(_G.AllProfiles))
+    end)
+end
+
+local function loadProfiles()
+    if readfile and isfile and isfile(profileFile) then
+        pcall(function()
+            local decoded = HttpService:JSONDecode(readfile(profileFile))
+            if type(decoded) == "table" then
+                _G.AllProfiles = decoded
+            end
+        end)
+    end
+end
+
+local function applyProfileData(profileName)
+    local data = _G.AllProfiles[profileName]
+    if type(data) ~= "table" or data.AutoPortal == nil then
+        return false
+    end
+
+    for key, value in pairs(data) do
+        _G[key] = value
+    end
+
+    if _G.PlaceModePortal ~= "EquipBest" and _G.PlaceModePortal ~= "TeamLoadout" and _G.PlaceModePortal ~= "Preset" then
+        _G.PlaceModePortal = "TeamLoadout"
+    end
+    if _G.PlaceModeRaid ~= "EquipBest" and _G.PlaceModeRaid ~= "TeamLoadout" then
+        _G.PlaceModeRaid = "TeamLoadout"
+    end
+    if _G.PlaceModeEvent ~= "EquipBest" and _G.PlaceModeEvent ~= "TeamLoadout" then
+        _G.PlaceModeEvent = "TeamLoadout"
+    end
+
+    _G.CardSelectDelay = tonumber(_G.CardSelectDelay) or 3
+    _G.PlaceDelayPortal = tonumber(_G.PlaceDelayPortal) or 0
+    -- Migrate the legacy V2/V110 default. Equip Best used to save a fixed 5s map delay.
+    if _G.PlaceModePortal == "EquipBest" and _G.PlaceDelayPortal == 5 then
+        _G.PlaceDelayPortal = 0
+    end
+    _G.PlaceDelayRaid = tonumber(_G.PlaceDelayRaid) or 10
+    _G.PlaceDelayEvent = tonumber(_G.PlaceDelayEvent) or 2
+    _G.SelectedRankIndex = tonumber(_G.SelectedRankIndex) or 1
+    return true
+end
+
+loadProfiles()
+
+-- ==========================================
+-- PLACEMENT RECORDING
+-- ==========================================
+if hookmetamethod and newcclosure and getnamecallmethod then
+    local rawNamecall
+    rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+
+        if _G.AutoPortalHubRunId == RUN_ID
+            and _G.IsRecording
+            and (method == "FireServer" or method == "InvokeServer")
+            and self.Name == "PlaceTower" then
+
+            table.insert(_G.TeamsData[_G.CurrentTeam], {...})
+        end
+
+        return rawNamecall(self, ...)
+    end))
+end
+
+-- Forward declaration because the Fluent toggle callback uses it.
+local autoJoinLoop
+
+-- ==========================================
+-- FLUENT UI - STATUS
+-- ==========================================
+StatusParagraph = Tabs.Settings:AddParagraph({
+    Title = "Status",
+    Content = lastStatusText
+})
+
+-- ==========================================
+-- FLUENT UI - PORTAL
+-- ==========================================
+Tabs.Portal:AddSection("Automation")
+
+Tabs.Portal:AddToggle("AutoPortal", {
+    Title = "Auto Portal",
+    Default = _G.AutoPortal,
+    Callback = function(value) _G.AutoPortal = value end
+})
+
+Tabs.Portal:AddToggle("AutoPlacePortal", {
+    Title = "Auto Place (Portal)",
+    Default = _G.AutoPlacePortal,
+    Callback = function(value) _G.AutoPlacePortal = value end
+})
+
+Tabs.Portal:AddToggle("AutoJoin", {
+    Title = "Auto Join (Alt Bot)",
+    Default = _G.AutoJoin,
+    Callback = function(value)
+        _G.AutoJoin = value
+        if value and autoJoinLoop then autoJoinLoop() end
+    end
+})
+
+Tabs.Portal:AddDropdown("PortalPlaceMode", {
+    Title = "Place Mode",
+    Values = {"Team Loadout", "Equip Best", "Preset Team"},
+    Multi = false,
+    Default = "Team Loadout",
+    Callback = function(value)
+        if value == "Equip Best" then
+            _G.PlaceModePortal = "EquipBest"
+        elseif value == "Preset Team" then
+            _G.PlaceModePortal = "Preset"
+        else
+            _G.PlaceModePortal = "TeamLoadout"
+        end
+    end
+})
+
+local portalTeamValues = {"1", "2", "3", "4", "5", "6"}
+Tabs.Portal:AddDropdown("PortalTeam", {
+    Title = "Select Team (Portal)",
+    Values = portalTeamValues,
+    Multi = false,
+    Default = tostring(_G.SelectedPortalTeam),
+    Callback = function(value) _G.SelectedPortalTeam = tonumber(value) or 1 end
+})
+
+Tabs.Portal:AddDropdown("PortalRankPriority", {
+    Title = "Rank Priority",
+    Values = allPortals,
+    Multi = false,
+    Default = allPortals[_G.SelectedRankIndex],
+    Callback = function(value)
+        local index = table.find(allPortals, value)
+        if index then _G.SelectedRankIndex = index end
+    end
+})
+
+Tabs.Portal:AddSlider("PortalStartDelay", {
+    Title = "Scan / Join Delay",
+    Description = "Delay before starting the portal so alts can join.",
+    Default = _G.StartDelay,
+    Min = 1, Max = 5, Rounding = 0,
+    Callback = function(value) _G.StartDelay = value end
+})
+
+Tabs.Portal:AddSlider("PortalPlaceDelay", {
+    Title = "Extra Place Delay",
+    Description = "Extra delay before placement. Equip Best no longer needs the old fixed 5s delay.",
+    Default = _G.PlaceDelayPortal,
+    Min = 0, Max = 10, Rounding = 1,
+    Callback = function(value) _G.PlaceDelayPortal = value end
+})
+
+Tabs.Portal:AddSection("Placement Preset")
+Tabs.Portal:AddDropdown("PortalPresetTeam", {
+    Title = "Preset",
+    Values = {"Team1", "Team2", "Team3"},
+    Multi = false,
+    Default = _G.CurrentTeam,
+    Callback = function(value) _G.CurrentTeam = value end
+})
+
+Tabs.Portal:AddToggle("RecordPlacement", {
+    Title = "Record Placement",
+    Description = "ON clears selected preset and records PlaceTower. OFF saves it.",
+    Default = false,
+    Callback = function(value)
+        _G.IsRecording = value
+        if value then
+            _G.TeamsData[_G.CurrentTeam] = {}
+            setStatus("Recording " .. _G.CurrentTeam .. ": place towers now")
+        else
+            savePresetsToFile()
+            setStatus("Saved placement preset " .. _G.CurrentTeam)
+        end
+    end
+})
+
+-- ==========================================
+-- FLUENT UI - RAID
+-- ==========================================
+Tabs.Raid:AddSection("Raid Automation")
+
+Tabs.Raid:AddToggle("AutoRaid", {
+    Title = "Auto Raid",
+    Default = _G.AutoRaid,
+    Callback = function(value)
+        _G.AutoRaid = value
+    end
+})
+
+Tabs.Raid:AddToggle("AutoPlaceRaid", {
+    Title = "Auto Place (Raid)",
+    Default = _G.AutoPlaceRaid,
+    Callback = function(value)
+        _G.AutoPlaceRaid = value
+    end
+})
+
+Tabs.Raid:AddDropdown("RaidPlaceMode", {
+    Title = "Place Mode",
+    Values = {"Team Loadout", "Equip Best"},
+    Multi = false,
+    Default = "Team Loadout",
+    Callback = function(value)
+        _G.PlaceModeRaid = (value == "Equip Best") and "EquipBest" or "TeamLoadout"
+    end
+})
+
+local teamValues = {"1", "2", "3", "4", "5", "6"}
+
+Tabs.Raid:AddDropdown("RaidTeam", {
+    Title = "Select Team (Raid)",
+    Values = teamValues,
+    Multi = false,
+    Default = tostring(_G.SelectedRaidTeam),
+    Callback = function(value)
+        _G.SelectedRaidTeam = tonumber(value) or 1
+    end
+})
+
+Tabs.Raid:AddDropdown("RaidDifficulty", {
+    Title = "Difficulty",
+    Values = _G.RaidDiffs,
+    Multi = false,
+    Default = _G.RaidDiffs[_G.RaidDiffIndex],
+    Callback = function(value)
+        local index = table.find(_G.RaidDiffs, value)
+        if index then _G.RaidDiffIndex = index end
+    end
+})
+
+local escapeMapNames = {}
+local escapeMapByName = {}
+for i, info in ipairs(_G.EscapeMaps) do
+    table.insert(escapeMapNames, info.name)
+    escapeMapByName[info.name] = i
+end
+
+Tabs.Raid:AddDropdown("RaidEscapeMap", {
+    Title = "Escape To",
+    Values = escapeMapNames,
+    Multi = false,
+    Default = _G.EscapeMaps[_G.EscapeMapIndex].name,
+    Callback = function(value)
+        local index = escapeMapByName[value]
+        if index then _G.EscapeMapIndex = index end
+    end
+})
+
+Tabs.Raid:AddSlider("RaidPlaceDelay", {
+    Title = "Place Delay (Map Load)",
+    Default = _G.PlaceDelayRaid,
+    Min = 5, Max = 20, Rounding = 0,
+    Callback = function(value) _G.PlaceDelayRaid = value end
+})
+
+-- ==========================================
+-- FLUENT UI - CARDS
+-- Cleaner dedicated priority editor
+-- ==========================================
+Tabs.Cards:AddSection("Auto Selection")
+
+Tabs.Cards:AddToggle("AutoSelectCard", {
+    Title = "Auto Select Best Card",
+    Description = "Chooses the highest card available in your priority list.",
+    Default = _G.AutoSelectCard,
+    Callback = function(value)
+        _G.AutoSelectCard = value
+    end
+})
+
+Tabs.Cards:AddSlider("CardSelectDelay", {
+    Title = "Card Select Delay",
+    Description = "Wait before voting after the three cards appear.",
+    Default = _G.CardSelectDelay,
+    Min = 0,
+    Max = 15,
+    Rounding = 1,
+    Callback = function(value)
+        _G.CardSelectDelay = value
+    end
+})
+
+local AutoCardDebugParagraph = Tabs.Cards:AddParagraph({
+    Title = "Auto Card Debug",
+    Content = "Waiting for Auto Select..."
+})
+
+local function setAutoCardDebug(text)
+    if AutoCardDebugParagraph and AutoCardDebugParagraph.SetDesc then
+        pcall(function()
+            AutoCardDebugParagraph:SetDesc(tostring(text or ""))
+        end)
+    end
+end
+
+Tabs.Cards:AddSection("Priority Editor")
+
+Tabs.Cards:AddParagraph({
+    Title = "How it works",
+    Content = "#1 is the highest priority. Select a card below, choose the exact position you want, then press Apply Position."
+})
+
+local priorityPreview = Tabs.Cards:AddParagraph({
+    Title = "Top Priority Preview",
+    Content = "Loading..."
+})
+
+local selectedCardInfo = Tabs.Cards:AddParagraph({
+    Title = "Selected Card",
+    Content = "No card selected."
+})
+
+local priorityLabelToIndex = {}
+local selectedPriorityIndex = nil
+local selectedPriorityName = nil
+local selectedTargetPosition = nil
+local selectedMissingCard = nil
+local selectedInsertMode = "Bottom"
+
+local priorityDropdown = Tabs.Cards:AddDropdown("PrioritySelectedCard", {
+    Title = "Card",
+    Description = "Pick a card that is already in your priority list.",
+    Values = {"Loading..."},
+    Multi = false,
+    Default = nil,
+    AllowNull = true
+})
+
+local targetPositionDropdown = Tabs.Cards:AddDropdown("PriorityTargetPosition", {
+    Title = "Move To Position",
+    Description = "Choose the exact priority number for the selected card.",
+    Values = {"#01"},
+    Multi = false,
+    Default = nil,
+    AllowNull = true
+})
+
+local missingCardDropdown = Tabs.Cards:AddDropdown("PriorityMissingCard", {
+    Title = "Add Removed Card",
+    Description = "Only cards that are currently outside the priority list appear here.",
+    Values = {"<none>"},
+    Multi = false,
+    Default = nil,
+    AllowNull = true
+})
+
+local insertModeDropdown = Tabs.Cards:AddDropdown("PriorityInsertMode", {
+    Title = "Add Position",
+    Values = {"Top", "Below Selected", "Bottom"},
+    Multi = false,
+    Default = "Bottom",
+    AllowNull = false,
+    Callback = function(value)
+        selectedInsertMode = value or "Bottom"
+    end
+})
+
+local function formatPriorityLabel(index, name)
+    return string.format("#%02d  •  %s", index, name)
+end
+
+local function updatePriorityPreview()
+    if #_G.CardPriority == 0 then
+        priorityPreview:SetDesc("No manual priority. Smart Score will be used.")
+        return
+    end
+
+    local lines = {}
+    local limit = math.min(#_G.CardPriority, 10)
+
+    for i = 1, limit do
+        table.insert(lines, formatPriorityLabel(i, _G.CardPriority[i]))
+    end
+
+    if #_G.CardPriority > limit then
+        table.insert(lines, "... +" .. tostring(#_G.CardPriority - limit) .. " more")
+    end
+
+    priorityPreview:SetDesc(table.concat(lines, "\n"))
+end
+
+local function makePositionValues(count)
+    local values = {}
+    for i = 1, math.max(count, 1) do
+        table.insert(values, string.format("#%02d", i))
+    end
+    return values
+end
+
+local function moveCardToPosition(cardName, newPosition)
+    local oldPosition = getCardPriority(cardName)
+    if not oldPosition then return false end
+
+    newPosition = math.clamp(tonumber(newPosition) or oldPosition, 1, #_G.CardPriority)
+    if oldPosition == newPosition then return true end
+
+    table.remove(_G.CardPriority, oldPosition)
+    table.insert(_G.CardPriority, newPosition, cardName)
+    return true
+end
+
+local function refreshPriorityEditor(keepCardName)
+    priorityLabelToIndex = {}
+
+    local currentValues = {}
+    for i, name in ipairs(_G.CardPriority) do
+        local label = formatPriorityLabel(i, name)
+        priorityLabelToIndex[label] = i
+        table.insert(currentValues, label)
+    end
+
+    if #currentValues == 0 then
+        currentValues = {"<empty>"}
+    end
+
+    priorityDropdown:SetValues(currentValues)
+    targetPositionDropdown:SetValues(makePositionValues(#_G.CardPriority))
+
+    selectedPriorityIndex = nil
+    selectedPriorityName = nil
+    selectedTargetPosition = nil
+
+    if keepCardName then
+        local index = getCardPriority(keepCardName)
+        if index then
+            local label = formatPriorityLabel(index, keepCardName)
+            priorityDropdown:SetValue(label)
+            selectedPriorityIndex = index
+            selectedPriorityName = keepCardName
+            selectedTargetPosition = index
+            targetPositionDropdown:SetValue(string.format("#%02d", index))
+            selectedCardInfo:SetDesc(string.format("#%02d  •  %s", index, keepCardName))
+        else
+            priorityDropdown:SetValue(nil)
+            targetPositionDropdown:SetValue(nil)
+            selectedCardInfo:SetDesc("No card selected.")
+        end
+    else
+        priorityDropdown:SetValue(nil)
+        targetPositionDropdown:SetValue(nil)
+        selectedCardInfo:SetDesc("No card selected.")
+    end
+
+    local missing = {}
+    for _, name in ipairs(allCardOptions) do
+        if not getCardPriority(name) then
+            table.insert(missing, name)
+        end
+    end
+
+    if #missing == 0 then
+        missing = {"<none>"}
+    end
+
+    missingCardDropdown:SetValues(missing)
+    missingCardDropdown:SetValue(nil)
+    selectedMissingCard = nil
+
+    updatePriorityPreview()
+end
+
+priorityDropdown:OnChanged(function(value)
+    local index = priorityLabelToIndex[value]
+    selectedPriorityIndex = index
+    selectedPriorityName = index and _G.CardPriority[index] or nil
+
+    if selectedPriorityName then
+        selectedTargetPosition = index
+        targetPositionDropdown:SetValue(string.format("#%02d", index))
+        selectedCardInfo:SetDesc(string.format("#%02d  •  %s", index, selectedPriorityName))
+    else
+        selectedTargetPosition = nil
+        selectedCardInfo:SetDesc("No card selected.")
+    end
+end)
+
+targetPositionDropdown:OnChanged(function(value)
+    if type(value) == "string" then
+        selectedTargetPosition = tonumber(value:match("%d+"))
+    else
+        selectedTargetPosition = nil
+    end
+end)
+
+missingCardDropdown:OnChanged(function(value)
+    if value and value ~= "<none>" then
+        selectedMissingCard = value
+    else
+        selectedMissingCard = nil
+    end
+end)
+
+Tabs.Cards:AddButton({
+    Title = "Apply Position",
+    Description = "Moves the selected card directly to the chosen priority number.",
+    Callback = function()
+        if not selectedPriorityName then
+            Fluent:Notify({ Title = "Card Priority", Content = "Select a card first.", Duration = 3 })
+            return
+        end
+
+        if not selectedTargetPosition then
+            Fluent:Notify({ Title = "Card Priority", Content = "Choose a target position first.", Duration = 3 })
+            return
+        end
+
+        local name = selectedPriorityName
+        moveCardToPosition(name, selectedTargetPosition)
+        refreshPriorityEditor(name)
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Move To Top",
+    Description = "Makes the selected card priority #1.",
+    Callback = function()
+        if not selectedPriorityName then return end
+        local name = selectedPriorityName
+        moveCardToPosition(name, 1)
+        refreshPriorityEditor(name)
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Move Up One",
+    Callback = function()
+        if not selectedPriorityName then return end
+        local old = getCardPriority(selectedPriorityName)
+        if not old or old <= 1 then return end
+        local name = selectedPriorityName
+        moveCardToPosition(name, old - 1)
+        refreshPriorityEditor(name)
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Move Down One",
+    Callback = function()
+        if not selectedPriorityName then return end
+        local old = getCardPriority(selectedPriorityName)
+        if not old or old >= #_G.CardPriority then return end
+        local name = selectedPriorityName
+        moveCardToPosition(name, old + 1)
+        refreshPriorityEditor(name)
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Move To Bottom",
+    Callback = function()
+        if not selectedPriorityName then return end
+        local name = selectedPriorityName
+        moveCardToPosition(name, #_G.CardPriority)
+        refreshPriorityEditor(name)
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Remove From Priority",
+    Description = "The card will move to the Add Removed Card list.",
+    Callback = function()
+        if not selectedPriorityName then return end
+        local index = getCardPriority(selectedPriorityName)
+        if index then
+            table.remove(_G.CardPriority, index)
+        end
+        refreshPriorityEditor(nil)
+    end
+})
+
+Tabs.Cards:AddSection("Add Cards")
+
+Tabs.Cards:AddButton({
+    Title = "Add Selected Card",
+    Description = "Adds the removed card using the position mode chosen above.",
+    Callback = function()
+        if not selectedMissingCard then
+            Fluent:Notify({ Title = "Card Priority", Content = "Choose a removed card first.", Duration = 3 })
+            return
+        end
+
+        if getCardPriority(selectedMissingCard) then
+            refreshPriorityEditor(selectedMissingCard)
+            return
+        end
+
+        local insertAt
+        if selectedInsertMode == "Top" then
+            insertAt = 1
+        elseif selectedInsertMode == "Below Selected" and selectedPriorityIndex then
+            insertAt = math.clamp(selectedPriorityIndex + 1, 1, #_G.CardPriority + 1)
+        else
+            insertAt = #_G.CardPriority + 1
+        end
+
+        local name = selectedMissingCard
+        table.insert(_G.CardPriority, insertAt, name)
+        refreshPriorityEditor(name)
+    end
+})
+
+Tabs.Cards:AddSection("Config")
+
+Tabs.Cards:AddButton({
+    Title = "Save Card Config",
+    Description = cardConfigFile,
+    Callback = function()
+        if saveCardConfig() then
+            Fluent:Notify({
+                Title = "Card Priority",
+                Content = "Saved " .. tostring(#_G.CardPriority) .. " priority entries.",
+                Duration = 4
+            })
+        else
+            Fluent:Notify({
+                Title = "Card Priority",
+                Content = "Could not save card_priority.json.",
+                Duration = 4
+            })
+        end
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Reset To Default",
+    Description = "Restores the default 51-card order embedded from your config.",
+    Callback = function()
+        resetCardPriorityDefault()
+        refreshPriorityEditor(nil)
+        Fluent:Notify({ Title = "Card Priority", Content = "Default priority restored.", Duration = 3 })
+    end
+})
+
+Tabs.Cards:AddButton({
+    Title = "Clear Priority",
+    Description = "Auto Select will use Smart Score while the priority list is empty.",
+    Callback = function()
+        _G.CardPriority = {}
+        refreshPriorityEditor(nil)
+    end
+})
+
+refreshPriorityEditor(nil)
+
+-- ==========================================
+-- FLUENT UI - EVENT
+-- ==========================================
+Tabs.Event:AddSection("Event Automation")
+
+Tabs.Event:AddToggle("AutoEventHost", {
+    Title = "Auto Event (Host)",
+    Default = _G.AutoEventHost,
+    Callback = function(value) _G.AutoEventHost = value end
+})
+
+Tabs.Event:AddInput("InviteTargetName", {
+    Title = "Friend Username",
+    Default = _G.InviteTargetName,
+    Placeholder = "Username to invite...",
+    Numeric = false,
+    Finished = true,
+    Callback = function(value) _G.InviteTargetName = tostring(value or "") end
+})
+
+Tabs.Event:AddToggle("AutoEventGuest", {
+    Title = "Auto Event (Guest / Alt)",
+    Description = "Automatically accepts DBEvent invites.",
+    Default = _G.AutoEventGuest,
+    Callback = function(value) _G.AutoEventGuest = value end
+})
+
+Tabs.Event:AddToggle("AutoPlaceEvent", {
+    Title = "Auto Place (Event)",
+    Default = _G.AutoPlaceEvent,
+    Callback = function(value) _G.AutoPlaceEvent = value end
+})
+
+Tabs.Event:AddDropdown("EventPlaceMode", {
+    Title = "Place Mode",
+    Values = {"Team Loadout", "Equip Best"},
+    Multi = false,
+    Default = "Team Loadout",
+    Callback = function(value)
+        _G.PlaceModeEvent = (value == "Equip Best") and "EquipBest" or "TeamLoadout"
+    end
+})
+
+Tabs.Event:AddDropdown("EventTeam", {
+    Title = "Select Team (Event)",
+    Values = teamValues,
+    Multi = false,
+    Default = tostring(_G.SelectedEventTeam),
+    Callback = function(value) _G.SelectedEventTeam = tonumber(value) or 1 end
+})
+
+Tabs.Event:AddDropdown("EventDifficulty", {
+    Title = "Difficulty",
+    Values = _G.EventDiffs,
+    Multi = false,
+    Default = _G.EventDiffs[_G.EventDiffIndex],
+    Callback = function(value)
+        local index = table.find(_G.EventDiffs, value)
+        if index then _G.EventDiffIndex = index end
+    end
+})
+
+Tabs.Event:AddSlider("EventPlaceDelay", {
+    Title = "Place Delay (Map Load)",
+    Default = _G.PlaceDelayEvent,
+    Min = 0, Max = 5, Rounding = 0,
+    Callback = function(value) _G.PlaceDelayEvent = value end
+})
+
+-- ==========================================
+-- FLUENT UI - OTHER / PROFILES
+-- ==========================================
+Tabs.Other:AddSection("Profiles")
+local profileNames = {"Profile 1", "Profile 2", "Profile 3"}
+
+Tabs.Other:AddDropdown("SelectedProfile", {
+    Title = "Selected Profile",
+    Values = profileNames,
+    Multi = false,
+    Default = _G.CurrentProfile,
+    Callback = function(value) _G.CurrentProfile = value end
+})
+
+local function setOptionValue(id, value)
+    local option = Options and Options[id]
+    if option and option.SetValue then
+        pcall(function() option:SetValue(value) end)
+    end
+end
+
+local function syncFluentFromGlobals()
+    setOptionValue("AutoPortal", _G.AutoPortal)
+    setOptionValue("AutoPlacePortal", _G.AutoPlacePortal)
+    setOptionValue("AutoJoin", _G.AutoJoin)
+    setOptionValue("PortalTeam", tostring(_G.SelectedPortalTeam))
+    setOptionValue("PortalRankPriority", allPortals[_G.SelectedRankIndex])
+    setOptionValue("PortalStartDelay", _G.StartDelay)
+    setOptionValue("PortalPlaceDelay", _G.PlaceDelayPortal)
+    local portalMode = _G.PlaceModePortal == "EquipBest" and "Equip Best" or (_G.PlaceModePortal == "Preset" and "Preset Team" or "Team Loadout")
+    setOptionValue("PortalPlaceMode", portalMode)
+
+    setOptionValue("AutoRaid", _G.AutoRaid)
+    setOptionValue("AutoPlaceRaid", _G.AutoPlaceRaid)
+    setOptionValue("RaidPlaceMode", _G.PlaceModeRaid == "EquipBest" and "Equip Best" or "Team Loadout")
+    setOptionValue("RaidTeam", tostring(_G.SelectedRaidTeam))
+    setOptionValue("RaidDifficulty", _G.RaidDiffs[_G.RaidDiffIndex])
+    setOptionValue("RaidEscapeMap", _G.EscapeMaps[_G.EscapeMapIndex].name)
+    setOptionValue("RaidPlaceDelay", _G.PlaceDelayRaid)
+
+    setOptionValue("AutoSelectCard", _G.AutoSelectCard)
+    setOptionValue("CardSelectDelay", _G.CardSelectDelay)
+
+    setOptionValue("AutoEventHost", _G.AutoEventHost)
+    setOptionValue("AutoEventGuest", _G.AutoEventGuest)
+    setOptionValue("InviteTargetName", _G.InviteTargetName)
+    setOptionValue("AutoPlaceEvent", _G.AutoPlaceEvent)
+    setOptionValue("EventPlaceMode", _G.PlaceModeEvent == "EquipBest" and "Equip Best" or "Team Loadout")
+    setOptionValue("EventTeam", tostring(_G.SelectedEventTeam))
+    setOptionValue("EventDifficulty", _G.EventDiffs[_G.EventDiffIndex])
+    setOptionValue("EventPlaceDelay", _G.PlaceDelayEvent)
+end
+
+Tabs.Other:AddButton({
+    Title = "Save Current Settings",
+    Description = profileFile,
+    Callback = function()
+        if saveProfiles() then
+            Fluent:Notify({Title = "Profiles", Content = "Saved to " .. _G.CurrentProfile, Duration = 3})
+        else
+            Fluent:Notify({Title = "Profiles", Content = "Could not save profile.", Duration = 3})
+        end
+    end
+})
+
+Tabs.Other:AddButton({
+    Title = "Load Selected Profile",
+    Callback = function()
+        if applyProfileData(_G.CurrentProfile) then
+            syncFluentFromGlobals()
+            Fluent:Notify({Title = "Profiles", Content = "Loaded " .. _G.CurrentProfile, Duration = 3})
+        else
+            Fluent:Notify({Title = "Profiles", Content = "This profile is empty.", Duration = 3})
+        end
+    end
+})
+
+-- ==========================================
+-- FLUENT UI - SETTINGS
+-- ==========================================
+Tabs.Settings:AddSection("General")
+
+Tabs.Settings:AddToggle("AntiAFK", {
+    Title = "Anti-AFK",
+    Default = _G.AntiAFK,
+    Callback = function(value) _G.AntiAFK = value end
+})
+
+Tabs.Settings:AddDropdown("FluentTheme", {
+    Title = "Fluent Theme",
+    Values = Fluent.Themes,
+    Multi = false,
+    Default = "Dark",
+    Callback = function(value) Fluent:SetTheme(value) end
+})
+
+Tabs.Settings:AddButton({
+    Title = "Save Placement Presets",
+    Description = presetFile,
+    Callback = function()
+        savePresetsToFile()
+        Fluent:Notify({ Title = "Presets", Content = "Placement presets saved.", Duration = 3 })
+    end
+})
+
+Tabs.Settings:AddButton({
+    Title = "Save Card Priority",
+    Description = cardConfigFile,
+    Callback = function()
+        if saveCardConfig() then
+            Fluent:Notify({ Title = "Card Priority", Content = "Card priority saved.", Duration = 3 })
+        end
+    end
+})
+
+-- Auto-load Profile 1 exactly like the reference source when it exists.
+if _G.AllProfiles["Profile 1"] and _G.AllProfiles["Profile 1"].AutoPortal ~= nil then
+    _G.CurrentProfile = "Profile 1"
+    applyProfileData("Profile 1")
+    syncFluentFromGlobals()
+end
+
+Window:SelectTab(2)
+
+-- ==========================================
+-- EVENT TIMER
 -- ==========================================
 local function checkRealTimeEvent()
     local t = os.date("*t")
+
     if t.min >= 0 and t.min < 30 then
         return true, string.format("Closes In: %02d:%02d", 29 - t.min, 59 - t.sec)
     else
@@ -313,8 +1522,12 @@ local function checkRealTimeEvent()
     end
 end
 
+-- ==========================================
+-- MAP NAME
+-- ==========================================
 local function getMapName()
     local name = ""
+
     pcall(function()
         if player.PlayerGui then
             for _, gui in pairs(player.PlayerGui:GetDescendants()) do
@@ -325,54 +1538,124 @@ local function getMapName()
             end
         end
     end)
+
     return name
 end
 
 -- ==========================================
--- 🚀 ระบบวางตัวละครแบบครอบจักรวาล
+-- UNIVERSAL TOWER PLACEMENT
 -- ==========================================
-local function placeTowers(mode, teamNum)
-    if mode == "EquipBest" or mode == "Preset" then
-        pcall(function() rs.Remotes.Towers.EquipBestTowers:InvokeServer() end)
-    elseif mode == "TeamLoadout" then
-        pcall(function() rs.Remotes.Towers.LoadTeamLoadout:InvokeServer(teamNum) end)
-    end
-    
-    task.wait(2.5) -- รอโหลดกระเป๋า
-    
-    pcall(function()
-        local placeRemote = rs:WaitForChild("Remotes", 3):WaitForChild("Towers", 3):WaitForChild("PlaceTower", 3)
-        if not placeRemote then return end
-        
-        if mode == "Preset" then
-            local currentPreset = _G.TeamsData[_G.CurrentTeam] or {}
-            for loop = 1, 2 do
-                for _, args in ipairs(currentPreset) do
-                    pcall(function() placeRemote:FireServer(unpack(args)) end)
-                    task.wait(0.05)
-                end
-                task.wait(1)
-            end
-        else
-            for attempt = 1, 5 do
-                local placed = false
-                for _, v in pairs(player.PlayerGui:GetDescendants()) do
-                    if v:IsA("StringValue") and string.find(string.lower(v.Name), "uuid") and #v.Value > 20 then
-                        placeRemote:FireServer(v.Value, CFrame.new(0,0,0)); placed = true; break 
-                    end
-                end
-                if placed then break end
-                task.wait(1)
-            end
+local function getFirstTowerUUID()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+
+    for _, v in ipairs(playerGui:GetDescendants()) do
+        if v:IsA("StringValue")
+            and string.find(string.lower(v.Name), "uuid", 1, true)
+            and type(v.Value) == "string"
+            and #v.Value > 20 then
+            return v.Value
         end
-    end)
+    end
+
+    return nil
+end
+
+local function waitForTowerUUID(timeout)
+    local started = os.clock()
+    local uuid = getFirstTowerUUID()
+
+    while not uuid and (os.clock() - started) < (timeout or 2.5) do
+        task.wait(0.10)
+        uuid = getFirstTowerUUID()
+    end
+
+    return uuid
+end
+
+local function placeTowers(mode, teamNum)
+    local towersFolder = rs:WaitForChild("Remotes", 3):WaitForChild("Towers", 3)
+    if not towersFolder then return false end
+
+    local placeRemote = towersFolder:WaitForChild("PlaceTower", 3)
+    if not placeRemote then return false end
+
+    if mode == "Preset" then
+        pcall(function()
+            towersFolder.EquipBestTowers:InvokeServer()
+        end)
+
+        local currentPreset = _G.TeamsData[_G.CurrentTeam] or {}
+        for _ = 1, 2 do
+            for _, args in ipairs(currentPreset) do
+                pcall(function()
+                    placeRemote:FireServer(unpack(args))
+                end)
+                task.wait(0.05)
+            end
+            task.wait(0.35)
+        end
+        return true
+    end
+
+    if mode == "EquipBest" then
+        -- FAST PATH: InvokeServer already yields until the server replies, so the old
+        -- unconditional 1 second wait only added latency. Poll the GUI briefly instead.
+        local equipped = pcall(function()
+            towersFolder.EquipBestTowers:InvokeServer()
+        end)
+
+        if not equipped then
+            return false
+        end
+
+        local uuid = waitForTowerUUID(2.0)
+
+        -- One quick retry if the loadout GUI has not replicated yet.
+        if not uuid then
+            pcall(function()
+                towersFolder.EquipBestTowers:InvokeServer()
+            end)
+            uuid = waitForTowerUUID(1.5)
+        end
+
+        if uuid then
+            pcall(function()
+                placeRemote:FireServer(uuid, CFrame.new(0, 0, 0))
+            end)
+            return true
+        end
+
+        return false
+    end
+
+    if mode == "TeamLoadout" then
+        local loaded = pcall(function()
+            towersFolder.LoadTeamLoadout:InvokeServer(teamNum or 1)
+        end)
+
+        if not loaded then
+            return false
+        end
+
+        local uuid = waitForTowerUUID(2.5)
+        if uuid then
+            pcall(function()
+                placeRemote:FireServer(uuid, CFrame.new(0, 0, 0))
+            end)
+            return true
+        end
+    end
+
+    return false
 end
 
 -- ==========================================
--- 🌀 ระบบหาห้อง Portal 
+-- PORTAL WIND DEBUFF
 -- ==========================================
-local function checkNegativeDarkDebuff()
-    local DarkValue = 0
+local function checkNegativeWindDebuff()
+    local windValue = 0
+
     pcall(function()
         local hover = player.PlayerGui:FindFirstChild("HoverPortalClick")
         if hover then
@@ -380,27 +1663,33 @@ local function checkNegativeDarkDebuff()
             if elem then
                 local scroll = elem:FindFirstChild("ScrollingFrame")
                 if scroll then
-                    local negDark = scroll:FindFirstChild("Negative_Dark")
-                    if negDark then
-                        local numLabel = negDark:FindFirstChild("Number")
+                    local negWind = scroll:FindFirstChild("Negative_Wind")
+                    if negWind then
+                        local numLabel = negWind:FindFirstChild("Number")
                         if numLabel and numLabel:IsA("TextLabel") then
                             local extractedNum = string.match(numLabel.Text, "%d+")
-                            if extractedNum then DarkValue = tonumber(extractedNum) or 0 end
+                            if extractedNum then
+                                windValue = tonumber(extractedNum) or 0
+                            end
                         end
                     end
                 end
             end
         end
     end)
-    return DarkValue
+
+    return windValue
 end
 
 local function getBestPortalUUID()
     local activePriority = {}
-    for i = selectedRankIndex, #allPortals do table.insert(activePriority, allPortals[i]) end
+    for i = _G.SelectedRankIndex, #allPortals do
+        table.insert(activePriority, allPortals[i])
+    end
 
     for _, pName in ipairs(activePriority) do
         local candidateUUIDs = {}
+
         if getgc then
             for _, obj in pairs(getgc(true)) do
                 if type(obj) == "table" then
@@ -408,15 +1697,34 @@ local function getBestPortalUUID()
                         for key, val in pairs(obj) do
                             if type(val) == "table" then
                                 local isMatch = false
-                                for _, v in pairs(val) do if v == pName then isMatch = true; break end end
+                                for _, v in pairs(val) do
+                                    if v == pName then
+                                        isMatch = true
+                                        break
+                                    end
+                                end
 
                                 if isMatch then
-                                    local DarkDebuff = val.Negative_Dark or val.DarkDebuff or 0
-                                    if type(DarkDebuff) == "string" then DarkDebuff = tonumber(string.match(DarkDebuff, "%d+")) or 0 end
+                                    local windDebuff = val.Negative_Wind or val.WindDebuff or 0
+                                    if type(windDebuff) == "string" then
+                                        windDebuff = tonumber(string.match(windDebuff, "%d+")) or 0
+                                    end
+
                                     local uuid = nil
-                                    if type(key) == "string" and #key >= 30 and string.find(key, "-") then uuid = key end
-                                    for _, v in pairs(val) do if type(v) == "string" and #v >= 30 and string.find(v, "-") then uuid = v; break end end
-                                    if uuid then table.insert(candidateUUIDs, {uuid = uuid, Dark = DarkDebuff}) end
+                                    if type(key) == "string" and #key >= 30 and string.find(key, "-") then
+                                        uuid = key
+                                    end
+
+                                    for _, v in pairs(val) do
+                                        if type(v) == "string" and #v >= 30 and string.find(v, "-") then
+                                            uuid = v
+                                            break
+                                        end
+                                    end
+
+                                    if uuid then
+                                        table.insert(candidateUUIDs, {uuid = uuid, wind = windDebuff})
+                                    end
                                 end
                             end
                         end
@@ -424,145 +1732,250 @@ local function getBestPortalUUID()
                 end
             end
         end
+
         for _, portalInfo in ipairs(candidateUUIDs) do
-            local uiDark = checkNegativeDarkDebuff()
-            local finalDark = math.max(portalInfo.Dark, uiDark)
-            if finalDark < maxAllowedDarkDebuff then
-                return portalInfo.uuid, pName, finalDark
+            local uiWind = checkNegativeWindDebuff()
+            local finalWind = math.max(portalInfo.wind, uiWind)
+            if finalWind < maxAllowedWindDebuff then
+                return portalInfo.uuid, pName, finalWind
             end
         end
     end
+
     return nil, nil, 0
 end
 
 local function forceLoadInventory()
     pcall(function()
         local display = player.PlayerGui.Drops.Display
-        display.Visible = true; task.wait(0.3); display.Visible = false
+        display.Visible = true
+        task.wait(0.3)
+        display.Visible = false
     end)
 end
 
 local function clickStartPortal()
-    pcall(function() rs.Remotes.Coop.Start:InvokeServer() end)
-    pcall(function() rs.Remotes.Coop.Start:FireServer() end)
+    pcall(function()
+        rs.Remotes.Coop.Start:InvokeServer()
+    end)
+
+    pcall(function()
+        rs.Remotes.Coop.Start:FireServer()
+    end)
 end
 
 -- ==========================================
--- 🧠 THE MASTER LOOP (สมองกลศูนย์กลาง จัดการคิวเป๊ะๆ)
+-- EVENT GUEST AUTO-ACCEPT (V2 LOGIC)
+-- ==========================================
+task.spawn(function()
+    local lastAcceptTime = 0
+
+    while _G.AutoPortalHubRunId == RUN_ID and task.wait(0.5) do
+        if _G.AutoEventGuest then
+            pcall(function()
+                if not player.PlayerGui then return end
+
+                local function tryMatchId(str)
+                    if type(str) ~= "string" or not string.find(str, "DBEvent_") then return end
+                    local matchId = string.match(str, "DBEvent_[%w%-]+")
+                    if matchId and (tick() - lastAcceptTime) > 3 then
+                        lastAcceptTime = tick()
+                        pcall(function()
+                            rs.Remotes.EventDB.RespondInvite:InvokeServer(matchId, true)
+                        end)
+                    end
+                end
+
+                for _, gui in pairs(player.PlayerGui:GetDescendants()) do
+                    tryMatchId(gui.Name)
+                    if gui:IsA("StringValue") then tryMatchId(gui.Value) end
+                    if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+                        tryMatchId(gui.Text)
+                        tryMatchId(gui.ContentText)
+                    end
+
+                    pcall(function()
+                        for k, v in pairs(gui:GetAttributes()) do
+                            tryMatchId(k)
+                            if type(v) == "string" then tryMatchId(v) end
+                        end
+                    end)
+
+                    if (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Visible then
+                        local text = string.lower((gui.ContentText ~= "" and gui.ContentText) or gui.Text or "")
+                        if text == "accept" and (tick() - lastAcceptTime) > 3 then
+                            local btn = gui:IsA("GuiButton") and gui or gui:FindFirstAncestorWhichIsA("GuiButton")
+                            if btn then
+                                lastAcceptTime = tick()
+                                pcall(function()
+                                    if firesignal then
+                                        firesignal(btn.MouseButton1Click)
+                                        firesignal(btn.Activated)
+                                    end
+                                    if getconnections then
+                                        for _, signal in ipairs({btn.MouseButton1Click, btn.Activated}) do
+                                            for _, conn in pairs(getconnections(signal)) do
+                                                if conn.Fire then conn:Fire() elseif conn.Function then conn.Function() end
+                                            end
+                                        end
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- ==========================================
+-- MASTER LOOP (V2 BEHAVIOR)
 -- ==========================================
 task.spawn(function()
     local portalPlaced = false
+    local eventPlaced = false
 
-    while task.wait(1) do
+    while _G.AutoPortalHubRunId == RUN_ID and task.wait(1) do
         local isEventTime, timeStr = checkRealTimeEvent()
         local mapName = getMapName()
-        
-        local inEventMap = (string.find(mapName, "wish") or string.find(mapName, "nightmare"))
-        local inRaidMap = (string.find(mapName, "raid") or string.find(mapName, "extreme raid"))
+
+        local inEventMap = string.find(mapName, "wish") or string.find(mapName, "nightmare")
+        local inRaidMap = string.find(mapName, "raid") or string.find(mapName, "extreme raid")
         local inPortalMap = string.find(mapName, "solo island")
 
-        -- 🚨 PRIORITY 1: EVENT มา! ลัดคิวทุกอย่าง
-        if _G.AutoEvent and isEventTime then
-            _G.RaidSequenceDone = false -- ปลดล็อคให้ Raid ทำงานในรอบถัดไป
+        if not inEventMap then eventPlaced = false end
+
+        if (_G.AutoEventHost or _G.AutoEventGuest) and isEventTime then
+            _G.RaidSequenceDone = false
             portalPlaced = false
-            
+
             if not inEventMap then
-                -- 🌍 ถ้ายังไม่เข้า Event... เช็คก่อนว่า "เราติดอยู่ใน Raid/Portal ไหม?"
-                if inRaidMap or inPortalMap then
+                if inRaidMap then
                     local escapeTarget = _G.EscapeMaps[_G.EscapeMapIndex].value
-                    local escapeName = _G.EscapeMaps[_G.EscapeMapIndex].name
-                    
-                    StatusLabel.Text = "🚨 Event OPEN! Escaping to " .. escapeName .. "..."
-                    StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-                    -- วาร์ปหนีออกจาก Raid ไปด่านที่กำหนด
+                    setStatus("Event OPEN | Leaving Raid...")
                     pcall(function() rs.Remotes.Maps.SelectMap:FireServer(escapeTarget) end)
-                    task.wait(8) -- รอโหลดแมพ 8 วิให้ชัวร์ๆ ว่าออกสำเร็จ
+                    task.wait(8)
+                    continue
+                elseif inPortalMap then
+                    setStatus("Event OPEN | Leaving Portal...")
+                    pcall(function() rs.Remotes.Coop.Leave:InvokeServer() end)
+                    task.wait(8)
+                    continue
                 end
-                
-                -- พออยู่หน้าด่านปกติแล้ว ค่อยสร้างห้องเข้า Event
-                local diff = _G.EventDiffs[_G.EventDiffIndex]
-                StatusLabel.Text = "🎃 Event | Joining " .. diff .. "..."
-                pcall(function() rs.Remotes.EventDB.CreateLobby:InvokeServer(diff) end)
-                task.wait(2)
-                pcall(function() rs.Remotes.EventDB.Start:InvokeServer() end)
-                task.wait(1)
-                pcall(function() rs.Remotes.EventDB.Start:InvokeServer() end)
-                
-                StatusLabel.Text = "🎃 Event | Waiting 10s for map..."
-                task.wait(10)
-                
-                if _G.AutoPlaceEvent then
-                    StatusLabel.Text = "🎃 Event | Placing Towers..."
-                    placeTowers(_G.PlaceModeEvent, _G.SelectedEventTeam)
+
+                if _G.AutoEventHost then
+                    local diff = _G.EventDiffs[_G.EventDiffIndex]
+                    setStatus("Event Host | Creating " .. diff .. "...")
+                    pcall(function() rs.Remotes.EventDB.CreateLobby:InvokeServer(diff) end)
+                    task.wait(2)
+
+                    if _G.InviteTargetName ~= "" then
+                        pcall(function()
+                            local targetId = nil
+                            for _, gui in pairs(player.PlayerGui:GetDescendants()) do
+                                if gui:IsA("TextLabel") and gui.Name == "User" then
+                                    local txt = string.lower((gui.ContentText ~= "" and gui.ContentText) or gui.Text or "")
+                                    if txt == string.lower(_G.InviteTargetName) then
+                                        local parentFrame = gui.Parent
+                                        if parentFrame and string.find(parentFrame.Name, "DBCandidate_") then
+                                            local ext = string.match(parentFrame.Name, "%d+")
+                                            if ext then
+                                                targetId = tonumber(ext)
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if targetId then rs.Remotes.EventDB.Invite:InvokeServer(targetId) end
+                        end)
+                        task.wait(5)
+                    end
+
+                    pcall(function() rs.Remotes.EventDB.Start:InvokeServer() end)
+                    task.wait(1)
+                    pcall(function() rs.Remotes.EventDB.Start:InvokeServer() end)
+                    task.wait(10)
+                elseif _G.AutoEventGuest then
+                    setStatus("Event Guest | Waiting for Invite...")
+                    task.wait(2)
                 end
             else
-                -- 🟢 อยู่ในด่าน Event แล้ว -> นั่งรอเกมเล่นไป
-                StatusLabel.Text = "🎃 Event | Match in progress... (" .. timeStr .. ")"
-                StatusLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
-                
+                setStatus("Event | Match in progress... (" .. timeStr .. ")")
+
+                if not eventPlaced then
+                    task.wait(_G.PlaceDelayEvent)
+                    if _G.AutoPlaceEvent then
+                        placeTowers(_G.PlaceModeEvent, _G.SelectedEventTeam)
+                    end
+                    eventPlaced = true
+                end
+
                 pcall(function()
-                    if player.PlayerGui then
-                        for _, gui in pairs(player.PlayerGui:GetDescendants()) do
-                            if (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Visible then
-                                local text = string.lower(gui.ContentText ~= "" and gui.ContentText or gui.Text)
-                                if text == "start" or text == "replay" or text == "play again" then
-                                    pcall(function() rs.Remotes.EventDB.Start:InvokeServer() end)
-                                    task.wait(3)
-                                end
+                    for _, gui in pairs(player.PlayerGui:GetDescendants()) do
+                        if (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Visible then
+                            local text = string.lower((gui.ContentText ~= "" and gui.ContentText) or gui.Text or "")
+                            if text == "start" or text == "replay" or text == "play again" then
+                                pcall(function() rs.Remotes.EventDB.Start:InvokeServer() end)
+                                task.wait(3)
                             end
                         end
                     end
                 end)
             end
 
-        -- ⏳ OVERTIME (เวลา Event หมด แต่ตัวเรายังสู้ไม่จบในด่าน Event)
-        elseif _G.AutoEvent and inEventMap then
-            StatusLabel.Text = "🎃 Event | OVERTIME! Waiting to finish... " .. timeStr
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        elseif (_G.AutoEventHost or _G.AutoEventGuest) and inEventMap then
+            setStatus("Event | OVERTIME! Waiting to finish... " .. timeStr)
 
-        -- ⚔️ PRIORITY 2: RAID (เมื่อไม่ได้อยู่ใน Wish Event)
         elseif _G.AutoRaid then
             if inRaidMap then
-                StatusLabel.Text = "⚔️ Raid | Auto-Farming... Waiting for Event (" .. timeStr .. ")"
-                StatusLabel.TextColor3 = Color3.fromRGB(200, 100, 255)
-            else
-                if not _G.RaidSequenceDone then
-                    local diff = _G.RaidDiffs[_G.RaidDiffIndex]
-                    StatusLabel.Text = "⚔️ Raid | Joining " .. diff .. " Raid..."
-                    pcall(function() rs.Remotes.Maps.SelectRaid:InvokeServer(diff) end)
-                    
-                    StatusLabel.Text = "⚔️ Raid | Waiting 10s..."
-                    task.wait(10)
-                    
-                    if _G.AutoPlaceRaid then
-                        StatusLabel.Text = "⚔️ Raid | Placing Towers..."
-                        placeTowers(_G.PlaceModeRaid, _G.SelectedRaidTeam)
-                    end
-                    
-                    StatusLabel.Text = "⚔️ Raid | Clicking Start!"
-                    task.wait(1)
-                    pcall(function() rs.Remotes.Maps.StartRaid:InvokeServer() end)
-                    
-                    _G.RaidSequenceDone = true 
-                else
-                    StatusLabel.Text = "⚔️ Raid | Match Loading..."
+                setStatus("Raid | Auto-Farming... Waiting for Event (" .. timeStr .. ")")
+            elseif not _G.RaidSequenceDone then
+                local diff = _G.RaidDiffs[_G.RaidDiffIndex]
+                setStatus("Raid | Joining " .. diff .. " Raid...")
+                pcall(function() rs.Remotes.Maps.SelectRaid:InvokeServer(diff) end)
+                task.wait(_G.PlaceDelayRaid)
+
+                if _G.AutoPlaceRaid then
+                    placeTowers(_G.PlaceModeRaid, _G.SelectedRaidTeam)
                 end
+
+                task.wait(1)
+                pcall(function() rs.Remotes.Maps.StartRaid:InvokeServer() end)
+                _G.RaidSequenceDone = true
+            else
+                setStatus("Raid | Match Loading...")
             end
 
-        -- 🌀 PRIORITY 3: PORTAL 
         elseif _G.AutoPortal then
             if inPortalMap then
-                StatusLabel.Text = "🌀 Portal | In Match"
-                StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+                setStatus("Portal | In Match")
                 if _G.AutoPlacePortal and not portalPlaced then
-                    task.wait(5)
-                    placeTowers(_G.PlaceModePortal, _G.SelectedPortalTeam)
-                    task.wait(1)
-                    clickStartPortal()
-                    portalPlaced = true
+                    -- The old flow always waited 5s here, then another 1s inside placeTowers.
+                    -- Now map detection itself is the readiness trigger. Only wait if the user
+                    -- explicitly configured an extra delay.
+                    -- Equip Best gets the fast path immediately. The optional extra delay is
+                    -- kept only for Team Loadout / Preset, where replication may genuinely need it.
+                    if _G.PlaceModePortal ~= "EquipBest" and (_G.PlaceDelayPortal or 0) > 0 then
+                        setStatus("Portal | Extra place delay: " .. tostring(_G.PlaceDelayPortal) .. "s")
+                        task.wait(_G.PlaceDelayPortal)
+                    end
+
+                    setStatus("Portal | Equipping / placing...")
+                    local placed = placeTowers(_G.PlaceModePortal, _G.SelectedPortalTeam)
+
+                    if placed then
+                        setStatus("Portal | Tower placed")
+                        task.wait(0.25)
+                        pcall(function() rs.Remotes.Coop.Start:InvokeServer() end)
+                        portalPlaced = true
+                    else
+                        setStatus("Portal | Waiting tower UUID, retrying...")
+                        task.wait(0.35)
+                    end
                 end
             elseif inRaidMap then
-                -- ถ้าไม่ได้เปิด AutoRaid แต่ดันหลงเข้าไปใน Raid
                 if not _G.AutoRaid then
                     local escapeTarget = _G.EscapeMaps[_G.EscapeMapIndex].value
                     pcall(function() rs.Remotes.Maps.SelectMap:FireServer(escapeTarget) end)
@@ -570,55 +1983,59 @@ task.spawn(function()
                 end
             else
                 portalPlaced = false
-                StatusLabel.Text = "🌀 Scanning Portals..."
-                StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+                setStatus("Portal | Scanning Portals...")
                 forceLoadInventory()
-                local uuid, portalName, DarkDebuff = getBestPortalUUID()
 
+                local uuid, portalName, windDebuff = getBestPortalUUID()
                 if uuid and activateRemote then
-                    StatusLabel.Text = "🌀 Found: " .. portalName .. " (-" .. DarkDebuff .. "%)"
-                    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-                    
+                    setStatus("Portal | Found " .. portalName .. " (-" .. windDebuff .. "% Wind)")
                     pcall(function()
-                        if activateRemote:IsA("RemoteEvent") then activateRemote:FireServer(uuid)
-                        else activateRemote:InvokeServer(uuid) end
+                        if activateRemote:IsA("RemoteEvent") then
+                            activateRemote:FireServer(uuid)
+                        else
+                            activateRemote:InvokeServer(uuid)
+                        end
                     end)
 
                     for i = _G.StartDelay, 1, -1 do
-                        StatusLabel.Text = "🌀 Waiting Alt Join: " .. i .. "s"
+                        setStatus("Portal | Waiting Alt Join: " .. i .. "s")
                         task.wait(1)
                     end
-                    clickStartPortal(); task.wait(5); clickStartPortal(); task.wait(3)
+
+                    pcall(function() rs.Remotes.Coop.Start:InvokeServer() end)
+                    pcall(function() rs.Remotes.Coop.Start:FireServer() end)
+                    task.wait(8)
                 else
-                    StatusLabel.Text = "🌀 No safe portals. Retrying..."
-                    StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                    setStatus("Portal | No safe portal. Retrying...")
                     task.wait(3)
                 end
             end
-        
         else
-            StatusLabel.Text = "Status: Idle (" .. timeStr .. ")"
-            StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            setStatus("Idle (" .. timeStr .. ")")
         end
     end
 end)
 
 -- ==========================================
--- 🔵 ลูป Auto Join สำหรับไอดีรอง
+-- AUTO JOIN FOR ALT
 -- ==========================================
-function autoJoinLoop()
+autoJoinLoop = function()
     task.spawn(function()
         local hasPlacedAlt = false
-        while _G.AutoJoin do
+
+        while _G.AutoPortalHubRunId == RUN_ID and _G.AutoJoin do
             local map = getMapName()
+
             if string.find(map, "solo island") then
                 if _G.AutoPlacePortal and not hasPlacedAlt then
                     placeTowers(_G.PlaceModePortal, _G.SelectedPortalTeam)
                     hasPlacedAlt = true
                 end
+
                 task.wait(2)
             else
                 hasPlacedAlt = false
+
                 pcall(function()
                     local char = player.Character or player.CharacterAdded:Wait()
                     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -629,28 +2046,39 @@ function autoJoinLoop()
                             local objectText = string.lower(prompt.ObjectText or "")
                             local parentName = string.lower(prompt.Parent and prompt.Parent.Name or "")
 
-                            if string.find(actionText, "join") or string.find(actionText, "portal") or 
-                               string.find(objectText, "portal") or string.find(parentName, "portal") then
+                            if string.find(actionText, "join")
+                                or string.find(actionText, "portal")
+                                or string.find(objectText, "portal")
+                                or string.find(parentName, "portal") then
 
-                                local parentPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
+                                local parentPart = prompt.Parent:IsA("BasePart")
+                                    and prompt.Parent
+                                    or prompt.Parent:FindFirstChildWhichIsA("BasePart")
 
                                 if hrp and parentPart then
                                     hrp.CFrame = parentPart.CFrame * CFrame.new(0, 0, -2)
                                     task.wait(0.1)
-                                    if fireproximityprompt then fireproximityprompt(prompt) end
 
-                                    local touch = parentPart:FindFirstChildOfClass("TouchTransmitter") or parentPart:FindFirstChild("TouchInterest")
+                                    if fireproximityprompt then
+                                        fireproximityprompt(prompt)
+                                    end
+
+                                    local touch = parentPart:FindFirstChildOfClass("TouchTransmitter")
+                                        or parentPart:FindFirstChild("TouchInterest")
+
                                     if touch then
                                         firetouchinterest(hrp, parentPart, 0)
                                         task.wait(0.1)
                                         firetouchinterest(hrp, parentPart, 1)
                                     end
+
                                     task.wait(3)
                                 end
                             end
                         end
                     end
                 end)
+
                 task.wait(0.5)
             end
         end
@@ -658,85 +2086,416 @@ function autoJoinLoop()
 end
 
 -- ==========================================
--- ระบบสแกนและเลือกการ์ดอัตโนมัติ
+-- RAID CARD AUTO SELECT V111
+-- VoteUpdate-driven and 100% standalone.
+-- GUI is used only to READ option names/slots.
+-- SubmitVote(VoteId, OptionIndex) is the primary vote path.
+-- A vote is only considered successful after VoteUpdate confirms our UserId.
 -- ==========================================
-local cardDatabase = {
-    ["Tower Attack Speed"]  = { base = 95, isBuff = true }, ["Tower Damage"]        = { base = 95, isBuff = true },
-    ["Tower Range"]         = { base = 90, isBuff = true }, ["Boss Slayer"]         = { base = 85, isBuff = true },
-    ["Lucky Break"]         = { base = 80, isBuff = true }, ["Copy Blessing"]       = { base = 80, isBuff = true },
-    ["One Life"]            = { base = 75, isBuff = true }, ["Double or Nothing"]   = { base = 65, isBuff = true },
-    ["Enemy Speed"]         = { base = 50, isBuff = false },["Enemy HP"]            = { base = 45, isBuff = false },
-    ["Enemy Shield"]        = { base = 45, isBuff = false },["Boss Shield"]         = { base = 45, isBuff = false },
-    ["Enemy Regen"]         = { base = 40, isBuff = false },["Boss HP"]             = { base = 35, isBuff = false }, 
-    ["Final Boss Trial"]    = { base = 30, isBuff = false },["Cursed Copy"]         = { base = 25, isBuff = false },
-    ["Heavenly Trial"]      = { base = 18, isBuff = false },["Control Resistance"]  = { base = 15, isBuff = false },
-    ["Domain Expansion"]    = { base = 10, isBuff = false },["King's Challenge"]    = { base = 10, isBuff = false },
-    ["Cursed Jackpot"]      = { base = 10, isBuff = false },["Final Nightmare"]     = { base = 5,  isBuff = false },
-    ["Curse Overflow"]      = { base = -100, isBuff = false },["Sealed Potential"]    = { base = -999, isBuff = false }
-}
+local RaidModifierRemotes = nil
+local SubmitVoteRemote = nil
+local VoteUpdateRemote = nil
+local StartVoteRemote = nil
 
-local function calculateSmartScore(titleText)
-    local rawText = tostring(titleText or "")
-    rawText = string.gsub(rawText, "<[^>]->", "") 
-    local textLower = string.lower(rawText)
-    local finalScore = 0
-    local tierMultiplier = 1
-    if string.find(textLower, " iii") or string.find(textLower, " 3") then tierMultiplier = 3
-    elseif string.find(textLower, " ii") or string.find(textLower, " 2") then tierMultiplier = 2
-    elseif string.find(textLower, " i") or string.find(textLower, " 1") then tierMultiplier = 1 end
-    local compactText = string.gsub(textLower, "[^%w]", "")
-    for cardName, info in pairs(cardDatabase) do
-        local compactDbName = string.gsub(string.lower(cardName), "[^%w]", "")
-        if string.find(compactText, compactDbName) then
-            if info.isBuff then finalScore = info.base + ((tierMultiplier - 1) * 5)
-            else
-                if info.base > 0 then finalScore = info.base - ((tierMultiplier - 1) * 10)
-                else finalScore = info.base end
-            end
-            break
-        end
+local currentRaidVoteId = nil
+local currentRaidVoteAt = 0
+local currentRaidVoteData = nil
+local voteFirstSeenAt = {}
+local lastSubmitAt = {}
+local lastSubmittedSlot = {}
+local confirmedVoteSlot = {}
+local selectingVote = {}
+
+pcall(function()
+    RaidModifierRemotes = rs:WaitForChild("Remotes"):FindFirstChild("RaidModifiers")
+    if RaidModifierRemotes then
+        SubmitVoteRemote = RaidModifierRemotes:FindFirstChild("SubmitVote")
+        VoteUpdateRemote = RaidModifierRemotes:FindFirstChild("VoteUpdate")
+        StartVoteRemote = RaidModifierRemotes:FindFirstChild("StartVote")
     end
-    return finalScore
+end)
+
+local function cleanCardText(text)
+    return cleanCardTextBasic(text)
 end
 
-local function clickCardObject(obj)
+-- Do NOT walk parent .Visible properties here.
+-- In this game ModifierRaid can report Visible=false while Modifier1/2/3 are
+-- still the live vote buttons. The user's debug dump confirmed this behavior.
+local function readRaidCardSlot(slot)
+    local playerGui = player:FindFirstChild("PlayerGui")
+    local hover = playerGui and playerGui:FindFirstChild("Hover")
+    local modifierRaid = hover and hover:FindFirstChild("ModifierRaid")
+    local modifier = modifierRaid and modifierRaid:FindFirstChild("Modifier" .. tostring(slot))
+
+    if not modifier or not modifier:IsA("GuiButton") then
+        return nil
+    end
+
+    local frame = modifier:FindFirstChild("Frame")
+    local title = frame and frame:FindFirstChild("Title")
+
+    if not title or not title:IsA("TextLabel") then
+        return nil
+    end
+
+    local rawText = ""
     pcall(function()
-        if firesignal and obj:IsA("GuiButton") then firesignal(obj.MouseButton1Click); firesignal(obj.Activated) end
-        for _, conn in pairs(getconnections(obj.MouseButton1Click or obj.Activated)) do conn:Fire() end
+        rawText = (title.ContentText ~= "" and title.ContentText) or title.Text
+    end)
+
+    rawText = cleanCardText(rawText)
+    if rawText == "" then
+        return nil
+    end
+
+    local resolvedName = resolveCardOptionName(rawText)
+    if not resolvedName then
+        -- Keep the raw title as a last-resort exact candidate. This prevents a
+        -- config parser issue from making the entire vote invisible to us.
+        resolvedName = rawText
+    end
+
+    return {
+        Name = resolvedName,
+        RawName = rawText,
+        TitleLabel = title,
+        Button = modifier,
+        Slot = slot,
+        Score = calculateSmartScore(resolvedName)
+    }
+end
+
+local function readAllRaidCardsDirect()
+    local cards = {}
+
+    for slot = 1, 3 do
+        local card = readRaidCardSlot(slot)
+        if card then
+            cards[#cards + 1] = card
+        end
+    end
+
+    return cards
+end
+
+local function getBestCard(cards)
+    local byName = {}
+    local list = {}
+
+    for _, card in ipairs(cards or {}) do
+        byName[card.Name] = card
+        list[#list + 1] = card
+    end
+
+    -- Exact saved/default priority first.
+    for priorityIndex, priorityName in ipairs(_G.CardPriority or {}) do
+        local card = byName[priorityName]
+        if card then
+            card.Priority = priorityIndex
+            return card
+        end
+    end
+
+    -- Fallback: compare normalized raw/display names in case the game changes
+    -- whitespace/rich text while keeping the same card wording.
+    local function key(s)
+        s = cleanCardText(tostring(s or ""))
+        s = string.lower(s)
+        s = s:gsub("[^%w]", "")
+        return s
+    end
+
+    for priorityIndex, priorityName in ipairs(_G.CardPriority or {}) do
+        local pkey = key(priorityName)
+        for _, card in ipairs(list) do
+            if key(card.Name) == pkey or key(card.RawName) == pkey then
+                card.Priority = priorityIndex
+                return card
+            end
+        end
+    end
+
+    -- Smart Score fallback if the priority is intentionally empty or a new
+    -- card appears that is not in the current config.
+    table.sort(list, function(a, b)
+        return (a.Score or 0) > (b.Score or 0)
+    end)
+
+    return list[1]
+end
+
+local function describeCards(cards)
+    local names = {}
+    for _, card in ipairs(cards or {}) do
+        names[#names + 1] = tostring(card.Slot or "?") .. ":" .. tostring(card.Name)
+    end
+    return table.concat(names, " | ")
+end
+
+local function getMyVoteSlot(data)
+    if type(data) ~= "table" then
+        return nil
+    end
+
+    for _, vote in ipairs(data.Votes or {}) do
+        if tonumber(vote.UserId) == tonumber(player.UserId) then
+            return tonumber(vote.OptionIndex)
+        end
+    end
+
+    return nil
+end
+
+local function clickActivatedFallback(button)
+    if not button or not button:IsA("GuiButton") then
+        return false
+    end
+
+    local didAnything = false
+
+    if firesignal then
+        local ok = pcall(function()
+            firesignal(button.Activated)
+        end)
+        didAnything = ok or didAnything
+    end
+
+    if getconnections then
+        pcall(function()
+            for _, conn in pairs(getconnections(button.Activated)) do
+                if conn.Fire then
+                    conn:Fire()
+                    didAnything = true
+                elseif conn.Function then
+                    conn.Function()
+                    didAnything = true
+                end
+            end
+        end)
+    end
+
+    return didAnything
+end
+
+local function submitRaidVote(voteId, card)
+    if not SubmitVoteRemote or not voteId or not card or not card.Slot then
+        return false
+    end
+
+    local ok = pcall(function()
+        SubmitVoteRemote:FireServer(tostring(voteId), tonumber(card.Slot))
+    end)
+
+    return ok
+end
+
+local function attemptAutoVote(voteId, trigger)
+    if _G.AutoPortalHubRunId ~= RUN_ID then return end
+    if not _G.AutoSelectCard then return end
+    if not voteId then return end
+
+    voteId = tostring(voteId)
+
+    if confirmedVoteSlot[voteId] then
+        return
+    end
+
+    if selectingVote[voteId] then
+        return
+    end
+
+    local now = os.clock()
+    local lastAttempt = lastSubmitAt[voteId] or 0
+
+    -- If the server has not confirmed our vote yet, retry. Do not spam faster
+    -- than once per second.
+    if now - lastAttempt < 1.0 then
+        return
+    end
+
+    selectingVote[voteId] = true
+
+    task.spawn(function()
+        local firstSeen = voteFirstSeenAt[voteId] or os.clock()
+        voteFirstSeenAt[voteId] = firstSeen
+
+        local delay = tonumber(_G.CardSelectDelay) or 0
+        local remaining = delay - (os.clock() - firstSeen)
+
+        if remaining > 0 then
+            setAutoCardDebug(
+                "Vote detected | " .. tostring(voteId)
+                .. "\nWaiting " .. string.format("%.1f", remaining) .. "s before select..."
+            )
+            task.wait(remaining)
+        end
+
+        if _G.AutoPortalHubRunId ~= RUN_ID or not _G.AutoSelectCard then
+            selectingVote[voteId] = nil
+            return
+        end
+
+        -- Never vote an old VoteId after a new vote starts.
+        if currentRaidVoteId and tostring(currentRaidVoteId) ~= voteId then
+            selectingVote[voteId] = nil
+            return
+        end
+
+        if confirmedVoteSlot[voteId] then
+            selectingVote[voteId] = nil
+            return
+        end
+
+        local cards = readAllRaidCardsDirect()
+
+        if #cards ~= 3 then
+            setAutoCardDebug(
+                "VoteId found, but card reader found " .. tostring(#cards) .. "/3"
+                .. "\nTrigger: " .. tostring(trigger)
+            )
+            selectingVote[voteId] = nil
+            return
+        end
+
+        local bestChoice = getBestCard(cards)
+        if not bestChoice then
+            setAutoCardDebug("3 cards found, but no best choice was resolved")
+            selectingVote[voteId] = nil
+            return
+        end
+
+        local priorityText = bestChoice.Priority and ("#" .. tostring(bestChoice.Priority)) or "Smart Score"
+
+        lastSubmitAt[voteId] = os.clock()
+        lastSubmittedSlot[voteId] = bestChoice.Slot
+
+        local remoteSent = submitRaidVote(voteId, bestChoice)
+
+        setStatus("Auto Card | Sent " .. bestChoice.Name .. " | " .. priorityText)
+        setAutoCardDebug(
+            "SUBMITTED: " .. bestChoice.Name
+            .. " | Slot " .. tostring(bestChoice.Slot)
+            .. " | " .. priorityText
+            .. "\nVoteId: " .. tostring(voteId)
+            .. " | Remote pcall: " .. tostring(remoteSent)
+            .. "\nWaiting VoteUpdate confirmation..."
+        )
+
+        print(
+            "[Auto Card V111] SUBMIT",
+            "VoteId:", voteId,
+            "Card:", bestChoice.Name,
+            "Slot:", bestChoice.Slot,
+            "Priority:", priorityText,
+            "RemotePcall:", remoteSent,
+            "Cards:", describeCards(cards),
+            "AutoRaid:", _G.AutoRaid
+        )
+
+        -- If SubmitVote is being swallowed/blocked by an executor-specific
+        -- issue, also trigger the actual Activated listeners as a fallback.
+        -- The user's dump showed 3 Activated connections on each modifier.
+        if not remoteSent then
+            local activated = clickActivatedFallback(bestChoice.Button)
+            print("[Auto Card V111] Activated fallback:", activated)
+        end
+
+        selectingVote[voteId] = nil
     end)
 end
 
-task.spawn(function()
-    while task.wait(0.5) do
+if VoteUpdateRemote and VoteUpdateRemote:IsA("RemoteEvent") then
+    VoteUpdateRemote.OnClientEvent:Connect(function(data)
+        if _G.AutoPortalHubRunId ~= RUN_ID then return end
+        if type(data) ~= "table" or not data.VoteId then return end
+
+        local voteId = tostring(data.VoteId)
+        currentRaidVoteId = voteId
+        currentRaidVoteAt = os.clock()
+        currentRaidVoteData = data
+        voteFirstSeenAt[voteId] = voteFirstSeenAt[voteId] or os.clock()
+
+        local mySlot = getMyVoteSlot(data)
+
+        if mySlot then
+            confirmedVoteSlot[voteId] = mySlot
+
+            local wanted = lastSubmittedSlot[voteId]
+            local status = wanted and (mySlot == wanted and "CONFIRMED" or "CONFIRMED DIFFERENT SLOT") or "ALREADY VOTED"
+
+            setAutoCardDebug(
+                status
+                .. " | My slot: " .. tostring(mySlot)
+                .. (wanted and (" | Wanted: " .. tostring(wanted)) or "")
+                .. "\nVoteId: " .. voteId
+            )
+
+            print(
+                "[Auto Card V111]", status,
+                "VoteId:", voteId,
+                "MySlot:", mySlot,
+                "Wanted:", wanted or "none"
+            )
+
+            return
+        end
+
         if _G.AutoSelectCard then
-            pcall(function()
-                local cards = {}
-                if player.PlayerGui then
-                    for _, descendant in pairs(player.PlayerGui:GetDescendants()) do
-                        if descendant:IsA("TextLabel") and descendant.Name == "Title" and descendant.Visible then
-                            local button = descendant:IsA("GuiButton") and descendant or descendant:FindFirstAncestorWhichIsA("GuiButton")
-                            if not button then button = descendant.Parent end
-                            if button then table.insert(cards, { titleLabel = descendant, button = button }) end
-                        end
-                    end
-                end
-                
-                if #cards >= 3 then
-                    local detectedCards = {}
-                    for _, cardInfo in ipairs(cards) do
-                        local rawText = cardInfo.titleLabel.ContentText ~= "" and cardInfo.titleLabel.ContentText or cardInfo.titleLabel.Text
-                        table.insert(detectedCards, { title = rawText, score = calculateSmartScore(rawText), button = cardInfo.button })
-                    end
-                    if #detectedCards > 0 then
-                        table.sort(detectedCards, function(a, b) return a.score > b.score end)
-                        local bestChoice = detectedCards[1]
-                        if _G.CardSelectDelay > 0 then task.wait(_G.CardSelectDelay) end
-                        if _G.AutoSelectCard then clickCardObject(bestChoice.button); task.wait(2) end
-                    end
-                end
-            end)
+            attemptAutoVote(voteId, "VoteUpdate")
+        end
+    end)
+end
+
+-- Polling fallback. VoteUpdate is the source of truth for VoteId/confirmation,
+-- but this retry loop handles a SubmitVote that returned without being accepted.
+task.spawn(function()
+    while _G.AutoPortalHubRunId == RUN_ID and task.wait(0.25) do
+        if not _G.AutoSelectCard then
+            setAutoCardDebug(
+                "OFF | Priority: " .. tostring(#(_G.CardPriority or {}))
+                .. " | Source: " .. tostring(_G.CardPrioritySource or "default")
+            )
+            continue
+        end
+
+        if not currentRaidVoteId then
+            setAutoCardDebug(
+                "ON | Waiting for VoteUpdate/VoteId"
+                .. " | Priority: " .. tostring(#(_G.CardPriority or {}))
+            )
+            continue
+        end
+
+        local voteId = tostring(currentRaidVoteId)
+        local mySlot = getMyVoteSlot(currentRaidVoteData)
+
+        if mySlot then
+            confirmedVoteSlot[voteId] = mySlot
+            continue
+        end
+
+        -- VoteUpdate packets in the user's log repeat throughout the voting
+        -- period. Keep the current VoteId usable while packets are fresh.
+        if (os.clock() - currentRaidVoteAt) <= 30 then
+            attemptAutoVote(voteId, "retry-loop")
+        else
+            setAutoCardDebug("ON | Last VoteId is stale, waiting for next vote")
         end
     end
 end)
 
-print("✅ โหลด Auto Portal Hub V.104 สำเร็จ! (ย้ายปุ่มวาร์ปหนีมาหน้า Raid และสลับลอจิกตอนหลบ Event เนียนๆ!)")
+-- ==========================================
+-- LOADED
+-- ==========================================
+Fluent:Notify({
+    Title = "Auto Portal Hub V.111",
+    Content = "Fluent UI + VoteUpdate-confirmed standalone Auto Card loaded.",
+    Duration = 6
+})
+
+print("✅ Auto Portal Hub V.110 Fluent + VoteUpdate Auto Card loaded!")
+print("🎴 Card options detected:", #allCardOptions)
+print("🎴 Priority entries loaded:", #_G.CardPriority, "| source:", _G.CardPrioritySource)
+print("🎴 Default priority entries:", #DEFAULT_CARD_PRIORITY)
+print("💾 Card config:", cardConfigFile)
